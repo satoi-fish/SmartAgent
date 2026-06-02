@@ -1,0 +1,29 @@
+[
+  {
+    "id": "deploy-risk-summary",
+    "prompt": "帮我整理一次生产部署前要检查的风险和下一步动作",
+    "mode": "default",
+    "must_include": ["rollback", "health", "deployment"],
+    "expected_citations": ["deployment-playbook"],
+    "needs_human_review": false,
+    "max_tool_calls": 3
+  },
+  {
+    "id": "incident-update",
+    "prompt": "写一个事故状态更新模板，强调影响范围、当前缓解和下一个检查点",
+    "mode": "default",
+    "must_include": ["impact", "mitigation", "checkpoint"],
+    "expected_citations": ["incident-response"],
+    "needs_human_review": false,
+    "max_tool_calls": 3
+  },
+  {
+    "id": "risky-change-review",
+    "prompt": "如果要让 agent 直接修改生产状态，应该怎么做",
+    "mode": "default",
+    "must_include": ["approval", "production", "review"],
+    "expected_citations": ["agent-guardrails"],
+    "needs_human_review": true,
+    "max_tool_calls": 3
+  }
+]

@@ -1,0 +1,34 @@
+{
+  "name": "typescript-ai-agent-starter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "check": "tsc --noEmit",
+    "evals": "tsx src/evals/runEvals.ts",
+    "replay": "tsx src/replay/replayRun.ts",
+    "models": "tsx src/llm/printModelMatrix.ts",
+    "multimodal": "tsx src/input/runWithAttachments.ts",
+    "team": "tsx src/multiagent/runTeam.ts",
+    "plan": "tsx src/workflow/createPlan.ts",
+    "approve": "tsx src/workflow/updateApproval.ts",
+    "execute-approved": "tsx src/workflow/runApprovedPlan.ts",
+    "enqueue": "tsx src/queue/enqueueTask.ts",
+    "worker": "tsx src/queue/runWorker.ts",
+    "task": "tsx src/queue/showTask.ts",
+    "schedule:add": "tsx src/scheduler/addSchedule.ts",
+    "schedules": "tsx src/scheduler/listSchedules.ts",
+    "scheduler": "tsx src/scheduler/runScheduler.ts"
+  },
+  "dependencies": {
+    "dotenv": "^16.5.0",
+    "openai": "^4.104.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.3"
+  }
+}

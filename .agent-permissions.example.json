@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "search_*",
+      "list_workspace_files",
+      "read_workspace_file",
+      "inspect_local_web_page",
+      "browser_open_local_page",
+      "browser_snapshot_local_page",
+      "browser_screenshot_local_page",
+      "browser_close_local_session"
+    ],
+    "ask": [
+      "draft_action_item",
+      "run_workspace_command",
+      "browser_click_local_element",
+      "browser_type_local_element"
+    ],
+    "deny": []
+  }
+}
