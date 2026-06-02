@@ -18,6 +18,13 @@ if (approvalId) {
     process.stderr.write(`No approval request found for ${approvalId}\n`);
     process.exit(1);
   }
+
+  if (approval.prompt !== prompt) {
+    process.stderr.write(
+      `Prompt does not match approval ${approvalId}. Re-run with the approved prompt exactly as stored.\n`,
+    );
+    process.exit(1);
+  }
 }
 
 const queue = new TaskQueueStore();

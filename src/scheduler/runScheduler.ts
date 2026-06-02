@@ -29,36 +29,50 @@ while (true) {
 }
 
 async function tick(): Promise<void> {
-  const dueSchedules = await scheduleStore.listDue();
-  if (dueSchedules.length === 0) {
+  const claimedSchedules = await scheduleStore.claimDue();
+  if (claimedSchedules.length === 0) {
     process.stdout.write("No due schedules.\n");
     return;
   }
 
-  for (const schedule of dueSchedules) {
+  for (const claimed of claimedSchedules) {
+    const schedule = claimed.schedule;
     if (schedule.approvalId) {
       const approval = await approvalStore.get(schedule.approvalId);
       if (!approval || approval.status !== "approved") {
         process.stdout.write(
           `Schedule ${schedule.id} is waiting on approval ${schedule.approvalId}; skipped for now.\n`,
         );
+        await scheduleStore.releaseClaim({
+          scheduleId: schedule.id,
+          claimId: claimed.claimId,
+        });
         continue;
       }
     }
 
-    const task = await taskQueue.enqueue({
-      prompt: schedule.prompt,
-      approvalId: schedule.approvalId,
-      scheduleId: schedule.id,
-      trigger: "schedule",
-    });
+    try {
+      const task = await taskQueue.enqueue({
+        prompt: schedule.prompt,
+        approvalId: schedule.approvalId,
+        scheduleId: schedule.id,
+        trigger: "schedule",
+      });
 
-    await scheduleStore.markTriggered({
-      scheduleId: schedule.id,
-      taskId: task.id,
-    });
+      await scheduleStore.markTriggered({
+        scheduleId: schedule.id,
+        taskId: task.id,
+        claimId: claimed.claimId,
+      });
 
-    process.stdout.write(`Triggered ${schedule.id} -> queued ${task.id}\n`);
+      process.stdout.write(`Triggered ${schedule.id} -> queued ${task.id}\n`);
+    } catch (error) {
+      await scheduleStore.releaseClaim({
+        scheduleId: schedule.id,
+        claimId: claimed.claimId,
+      });
+      throw error;
+    }
   }
 }
 

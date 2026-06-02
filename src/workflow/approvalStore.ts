@@ -50,7 +50,23 @@ export class ApprovalStore {
     try {
       const raw = await readFile(this.filePath, "utf8");
       const parsed = JSON.parse(raw) as ApprovalRequest[];
-      return Array.isArray(parsed) ? parsed : [];
+      return Array.isArray(parsed)
+        ? parsed.map((request) => ({
+            ...request,
+            plan: {
+              ...request.plan,
+              approvedTools: Array.isArray(request.plan?.approvedTools)
+                ? request.plan.approvedTools.filter((item): item is string => typeof item === "string")
+                : [],
+              steps: Array.isArray(request.plan?.steps)
+                ? request.plan.steps.map((step) => ({
+                    ...step,
+                    toolName: step.toolName,
+                  }))
+                : [],
+            },
+          }))
+        : [];
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
         return [];

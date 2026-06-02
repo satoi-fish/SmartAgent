@@ -15,7 +15,7 @@ export type BackgroundTaskStatus = "queued" | "running" | "completed" | "failed"
 export type AttachmentKind = "text" | "image" | "table" | "document" | "unsupported";
 export type TaskTrigger = "manual" | "schedule";
 export type ScheduleKind = "once" | "interval";
-export type ScheduleStatus = "active" | "paused" | "completed";
+export type ScheduleStatus = "active" | "paused" | "dispatching" | "completed";
 
 export type ToolRiskLevel = "low" | "medium" | "high";
 
@@ -261,6 +261,7 @@ export interface WorkflowPlanStep {
   kind: "analyze" | "retrieve" | "tool" | "write" | "review";
   detail: string;
   requiresApproval: boolean;
+  toolName?: string;
 }
 
 export interface WorkflowPlan {
@@ -270,6 +271,7 @@ export interface WorkflowPlan {
   risks: string[];
   approvalsNeeded: string[];
   suggestedMode: ApprovalMode;
+  approvedTools: string[];
 }
 
 export interface PlannerBrief {
@@ -322,6 +324,8 @@ export interface TaskSchedule {
   approvalId?: string;
   lastRunAt?: string;
   lastTaskId?: string;
+  claimId?: string;
+  claimedAt?: string;
   totalRuns: number;
 }
 

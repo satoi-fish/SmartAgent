@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import { extname, relative, resolve, sep } from "node:path";
 
 import { ShellAuditStore } from "./shellAuditStore.js";
@@ -16,6 +16,10 @@ const DEFAULT_IGNORES = new Set([
   ".agent-tasks.json",
   ".agent-approvals.json",
   ".agent-schedules.json",
+  ".agent-permissions.json",
+  ".agent-shell-audit.jsonl",
+  ".agent-browser-audit.jsonl",
+  ".agent-browser-shots",
 ]);
 
 const TEXT_EXTENSIONS = new Set([
@@ -127,19 +131,33 @@ export class WorkspaceTools {
     const cwd = this.resolveWithinRoot(args.cwd ?? ".");
     const mapped = this.mapCommand(args.action, args.commandArgs);
     const startedAt = Date.now();
-    const result = await execFileSafe({
-      command: mapped.command,
-      args: mapped.args,
+    const builtinResult = await this.runBuiltinCommand({
+      action: args.action,
+      commandArgs: args.commandArgs,
       cwd,
-      timeoutMs: args.timeoutMs,
       maxOutputChars: args.maxOutputChars,
     });
+    const result =
+      builtinResult ??
+      (await execFileSafe({
+        command: mapped.command,
+        args: mapped.args,
+        cwd,
+        timeoutMs: args.timeoutMs,
+        maxOutputChars: args.maxOutputChars,
+      }));
+    const auditedCommand = builtinResult
+      ? {
+          command: builtinResult.command,
+          args: builtinResult.args,
+        }
+      : mapped;
 
     await this.auditStore.append({
       timestamp: new Date().toISOString(),
       toolName: "run_workspace_command",
-      command: mapped.command,
-      args: mapped.args,
+      command: auditedCommand.command,
+      args: auditedCommand.args,
       cwd,
       exitCode: result.exitCode,
       durationMs: Date.now() - startedAt,
@@ -252,9 +270,9 @@ export class WorkspaceTools {
   ): { command: string; args: string[] } {
     switch (action) {
       case "pwd":
-        return { command: "pwd", args: [] };
+        return { command: process.platform === "win32" ? "cd" : "pwd", args: [] };
       case "ls":
-        return { command: "ls", args: commandArgs.length ? commandArgs : ["-la"] };
+        return { command: process.platform === "win32" ? "dir" : "ls", args: commandArgs.length ? commandArgs : ["-la"] };
       case "rg":
         return { command: "rg", args: commandArgs };
       case "git_status":
@@ -266,6 +284,57 @@ export class WorkspaceTools {
         throw new Error(`Unsupported shell action: ${exhaustiveCheck}`);
       }
     }
+  }
+
+  private async runBuiltinCommand(args: {
+    action: "pwd" | "ls" | "rg" | "git_status" | "git_diff";
+    commandArgs: string[];
+    cwd: string;
+    maxOutputChars: number;
+  }): Promise<WorkspaceCommandResult | null> {
+    if (args.action === "pwd") {
+      return {
+        command: "pwd",
+        args: [],
+        cwd: args.cwd,
+        exitCode: 0,
+        stdout: args.cwd,
+        stderr: "",
+        durationMs: 0,
+        truncated: false,
+      };
+    }
+
+    if (args.action !== "ls") {
+      return null;
+    }
+
+    const targetArg = args.commandArgs.find((item) => !item.startsWith("-"));
+    const targetDir = targetArg ? this.resolveWithinRoot(resolve(args.cwd, targetArg)) : args.cwd;
+    const entries = await readdir(targetDir, { withFileTypes: true });
+    const renderedLines: string[] = [];
+
+    for (const entry of entries) {
+      const absolutePath = resolve(targetDir, entry.name);
+      const metadata = await stat(absolutePath);
+      const kind = entry.isDirectory() ? "dir " : "file";
+      renderedLines.push(
+        `${kind}\t${metadata.size.toString().padStart(8, " ")}\t${relative(this.rootDir, absolutePath) || entry.name}`,
+      );
+    }
+
+    const stdout = renderedLines.join("\n");
+    const truncated = stdout.length > args.maxOutputChars;
+    return {
+      command: "ls",
+      args: targetArg ? [targetArg] : [],
+      cwd: args.cwd,
+      exitCode: 0,
+      stdout: truncated ? `${stdout.slice(0, args.maxOutputChars)}...` : stdout,
+      stderr: "",
+      durationMs: 0,
+      truncated,
+    };
   }
 }
 

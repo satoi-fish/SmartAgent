@@ -753,9 +753,10 @@ export function createToolRegistry(args: {
     { sessionId: string; url: string; screenshotPath: string }
   > = {
     name: "browser_screenshot_local_page",
-    description: "Capture a screenshot from a local browser session for review or debugging.",
-    riskLevel: "low",
-    isReadOnly: true,
+    description:
+      "Capture a screenshot from a local browser session and save it into the agent screenshot directory.",
+    riskLevel: "medium",
+    isReadOnly: false,
     jsonSchema: {
       type: "object",
       properties: {
@@ -768,7 +769,9 @@ export function createToolRegistry(args: {
     validate(rawArgs) {
       return browserScreenshotSchema.parse(rawArgs);
     },
-    requiresApproval: () => false,
+    requiresApproval() {
+      return true;
+    },
     async execute(input) {
       return await browserManager.screenshot({
         sessionId: input.session_id,

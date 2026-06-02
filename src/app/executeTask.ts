@@ -17,16 +17,37 @@ import {
 } from "../multiagent/plannerReviewer.js";
 import { FileLogger } from "../telemetry/fileLogger.js";
 import { FileIdempotencyStore } from "../tools/idempotencyStore.js";
-import { loadPermissionPolicy } from "../tools/policy.js";
+import { loadPermissionPolicy, PermissionPolicy } from "../tools/policy.js";
 import { createToolRegistry } from "../tools/registry.js";
 import type { AgentRunResult, ApprovalMode, ProviderName, TeamMode } from "../types/index.js";
 import type { SessionBackend } from "../memory/sessionStore.js";
 
 export interface ExecuteTaskResult extends AgentRunResult {
   runId: string;
-  logPath: string;
+  logPath: string | null;
   model: string;
   provider: string;
+}
+
+function parseBooleanFlag(value: string | undefined, defaultValue: boolean): boolean {
+  if (value === undefined) {
+    return defaultValue;
+  }
+
+  switch (value.trim().toLowerCase()) {
+    case "1":
+    case "true":
+    case "yes":
+    case "on":
+      return true;
+    case "0":
+    case "false":
+    case "no":
+    case "off":
+      return false;
+    default:
+      return defaultValue;
+  }
 }
 
 export async function executeTask(args: {
@@ -38,9 +59,13 @@ export async function executeTask(args: {
   attachmentPaths?: string[];
   echoStdout?: boolean;
   persistSession?: boolean;
+  persistRunLog?: boolean;
   sessionFilePath?: string;
   sessionBackend?: SessionBackend;
   sessionId?: string;
+  permissionPolicy?: PermissionPolicy;
+  toolNameAllowlist?: string[];
+  includeReadOnlyToolsInAllowlist?: boolean;
 }): Promise<ExecuteTaskResult> {
   const provider = createProvider({
     providerName: args.providerName,
@@ -69,8 +94,15 @@ export async function executeTask(args: {
   });
   const knowledgeStore = new FileKnowledgeStore(undefined, cacheStore);
   const idempotencyStore = new FileIdempotencyStore();
-  const toolRegistry = createToolRegistry({ knowledgeStore, memoryStore, idempotencyStore });
-  const permissionPolicy = await loadPermissionPolicy();
+  const fullToolRegistry = createToolRegistry({ knowledgeStore, memoryStore, idempotencyStore });
+  const allowedToolNames = args.toolNameAllowlist ? new Set(args.toolNameAllowlist) : null;
+  const toolRegistry = allowedToolNames
+    ? fullToolRegistry.filter(
+        (tool) =>
+          allowedToolNames.has(tool.name) || ((args.includeReadOnlyToolsInAllowlist ?? false) && tool.isReadOnly),
+      )
+    : fullToolRegistry;
+  const permissionPolicy = args.permissionPolicy ?? (await loadPermissionPolicy());
   const attachments = args.attachmentPaths?.length ? await loadAttachments(args.attachmentPaths) : [];
   if (attachments.length > 0) {
     logger.emit({
@@ -227,7 +259,8 @@ export async function executeTask(args: {
     }
   }
 
-  if (args.persistSession ?? true) {
+  const persistSession = args.persistSession ?? parseBooleanFlag(process.env.AGENT_PERSIST_SESSION, false);
+  if (persistSession) {
     const now = new Date().toISOString();
 
     await sessionStore.append({
@@ -243,15 +276,18 @@ export async function executeTask(args: {
     });
   }
 
-  const logPath = await logger.flush({
-    prompt: args.prompt,
-    answer: result.renderedAnswer,
-    toolCalls: result.toolCalls,
-    totalTokens: result.usage.totalTokens,
-    needsHumanReview: result.structuredAnswer.needs_human_review,
-    model: activeContext.routedModel.model,
-    provider: activeContext.routedModel.provider,
-  });
+  const persistRunLog = args.persistRunLog ?? parseBooleanFlag(process.env.AGENT_PERSIST_RUN_LOG, false);
+  const logPath = persistRunLog
+    ? await logger.flush({
+        prompt: args.prompt,
+        answer: result.renderedAnswer,
+        toolCalls: result.toolCalls,
+        totalTokens: result.usage.totalTokens,
+        needsHumanReview: result.structuredAnswer.needs_human_review,
+        model: activeContext.routedModel.model,
+        provider: activeContext.routedModel.provider,
+      })
+    : null;
 
   return {
     ...result,

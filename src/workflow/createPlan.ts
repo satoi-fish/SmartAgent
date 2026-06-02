@@ -9,6 +9,7 @@ import { createProvider } from "../llm/createProvider.js";
 import { parseStructuredWithRetry } from "../llm/parseStructuredWithRetry.js";
 import { FileMemoryStore } from "../memory/memoryStore.js";
 import { createSessionStore } from "../memory/sessionStore.js";
+import { ALL_TOOL_NAMES, APPROVABLE_TOOL_NAMES } from "../tools/catalog.js";
 import type { ApprovalMode, ProviderName, WorkflowPlan } from "../types/index.js";
 import { ApprovalStore } from "./approvalStore.js";
 
@@ -21,11 +22,13 @@ const workflowPlanSchema = z.object({
       kind: z.enum(["analyze", "retrieve", "tool", "write", "review"]),
       detail: z.string(),
       requiresApproval: z.boolean(),
+      toolName: z.enum(ALL_TOOL_NAMES).optional(),
     }),
   ),
   risks: z.array(z.string()),
   approvalsNeeded: z.array(z.string()),
   suggestedMode: z.enum(["plan", "default", "auto"]),
+  approvedTools: z.array(z.enum(APPROVABLE_TOOL_NAMES)),
 });
 
 const prompt = process.argv.slice(2).join(" ").trim();
@@ -63,6 +66,9 @@ const plan = await parseStructuredWithRetry<WorkflowPlan>({
       "Create a human-reviewable execution plan for an engineering agent.",
       "The plan must be actionable, concise, and explicit about approvals and risks.",
       "If the task implies writes or production risk, mark the relevant steps with requiresApproval=true.",
+      `Only use toolName values from this catalog when a step depends on a specific tool: ${ALL_TOOL_NAMES.join(", ")}.`,
+      `List every approval-gated tool needed for execution in approvedTools, using only: ${APPROVABLE_TOOL_NAMES.join(", ")}.`,
+      "Do not add a tool to approvedTools unless the approved execution really needs that capability.",
     ].join(" "),
     input: [
       {
@@ -111,6 +117,11 @@ process.stdout.write(
     `Approvals needed:\n${
       request.plan.approvalsNeeded.length
         ? request.plan.approvalsNeeded.map((item) => `- ${item}`).join("\n")
+        : "- none"
+    }`,
+    `Approved tools:\n${
+      request.plan.approvedTools.length
+        ? request.plan.approvedTools.map((item) => `- ${item}`).join("\n")
         : "- none"
     }`,
   ].join("\n\n"),

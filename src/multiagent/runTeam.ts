@@ -18,8 +18,9 @@ const result = await executeTask({
   mode,
   teamMode: "planner_reviewer",
   echoStdout: true,
-  persistSession: true,
 });
 
 process.stdout.write(`\nTeam-mode answer:\n${result.renderedAnswer}\n`);
-process.stdout.write(`\nRun log: ${result.logPath}\n`);
+if (result.logPath) {
+  process.stdout.write(`\nRun log: ${result.logPath}\n`);
+}

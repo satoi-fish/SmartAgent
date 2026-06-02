@@ -19,8 +19,9 @@ const result = await executeTask({
   mode,
   attachmentPaths: filePaths,
   echoStdout: true,
-  persistSession: true,
 });
 
 process.stdout.write(`\nMultimodal answer:\n${result.renderedAnswer}\n`);
-process.stdout.write(`\nRun log: ${result.logPath}\n`);
+if (result.logPath) {
+  process.stdout.write(`\nRun log: ${result.logPath}\n`);
+}
