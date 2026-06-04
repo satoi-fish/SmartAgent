@@ -18,8 +18,9 @@ const result = await executeTask({
   providerName,
   mode,
   echoStdout: true,
-  persistSession: true,
 });
 
 process.stdout.write(`\nFinal answer:\n${result.renderedAnswer}\n`);
-process.stdout.write(`\nRun log: ${result.logPath}\n`);
+if (result.logPath) {
+  process.stdout.write(`\nRun log: ${result.logPath}\n`);
+}

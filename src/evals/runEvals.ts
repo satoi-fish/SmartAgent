@@ -22,7 +22,7 @@ interface EvalResult {
   score: number;
   checks: Array<{ name: string; passed: boolean; detail: string }>;
   runId: string;
-  logPath: string;
+  logPath: string | null;
   renderedAnswer: string;
 }
 
@@ -42,6 +42,7 @@ for (const evalCase of cases) {
     mode: evalCase.mode ?? "default",
     echoStdout: false,
     persistSession: false,
+    persistRunLog: true,
     sessionFilePath: resolve(process.cwd(), ".agent-session.evals.json"),
   });
 

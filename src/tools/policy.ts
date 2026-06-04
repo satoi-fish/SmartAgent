@@ -40,6 +40,14 @@ export class PermissionPolicy {
 
     return "passthrough";
   }
+
+  extend(overrides: Partial<{ allow: string[]; ask: string[]; deny: string[] }>): PermissionPolicy {
+    return new PermissionPolicy({
+      allow: [...this.rules.allow, ...(overrides.allow ?? [])],
+      ask: [...this.rules.ask, ...(overrides.ask ?? [])],
+      deny: [...this.rules.deny, ...(overrides.deny ?? [])],
+    });
+  }
 }
 
 export async function loadPermissionPolicy(

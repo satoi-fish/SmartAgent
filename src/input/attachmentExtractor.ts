@@ -44,10 +44,20 @@ async function resolvePythonExecutable(): Promise<string> {
       "codex-primary-runtime",
       "dependencies",
       "python",
+      "python.exe",
+    ),
+    resolve(
+      homedir(),
+      ".cache",
+      "codex-runtimes",
+      "codex-primary-runtime",
+      "dependencies",
+      "python",
       "bin",
       "python3",
     ),
     "python3",
+    "python",
   ].filter((value): value is string => Boolean(value));
 
   for (const candidate of candidates) {

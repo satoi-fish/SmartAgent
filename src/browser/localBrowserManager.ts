@@ -1,5 +1,5 @@
 import { mkdir } from "node:fs/promises";
-import { resolve } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 
 import { BrowserAuditStore } from "./browserAuditStore.js";
@@ -151,11 +151,10 @@ export class LocalBrowserManager {
     screenshotPath: string;
   }> {
     const page = this.getSession(args.sessionId);
-    await mkdir(this.screenshotsDir, { recursive: true });
-    const screenshotPath = resolve(
-      this.screenshotsDir,
+    const screenshotPath = this.resolveScreenshotPath(
       args.fileName ?? `${args.sessionId}-${Date.now()}.png`,
     );
+    await mkdir(this.screenshotsDir, { recursive: true });
     await page.screenshot({
       path: screenshotPath,
       fullPage: true,
@@ -244,6 +243,28 @@ export class LocalBrowserManager {
       url: page.url(),
       title: await page.title(),
     };
+  }
+
+  private resolveScreenshotPath(fileName: string): string {
+    const trimmed = fileName.trim();
+    if (!trimmed) {
+      throw new Error("Screenshot file name cannot be empty.");
+    }
+
+    if (trimmed.includes("/") || trimmed.includes("\\") || isAbsolute(trimmed)) {
+      throw new Error("Screenshot file name must not contain path separators or absolute paths.");
+    }
+
+    const normalizedName = trimmed.endsWith(".png") ? trimmed : `${trimmed}.png`;
+    const safeName = normalizedName.replace(/[^A-Za-z0-9._-]/g, "-");
+    const screenshotPath = resolve(this.screenshotsDir, safeName);
+    const rel = relative(this.screenshotsDir, screenshotPath);
+
+    if (rel.startsWith("..") || rel.includes(`${sep}..${sep}`) || rel === "..") {
+      throw new Error("Screenshot path escapes the configured screenshot directory.");
+    }
+
+    return screenshotPath;
   }
 }
 
