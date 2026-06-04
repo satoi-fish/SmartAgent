@@ -9,6 +9,7 @@
     "evals": "tsx src/evals/runEvals.ts",
     "replay": "tsx src/replay/replayRun.ts",
     "models": "tsx src/llm/printModelMatrix.ts",
+    "workbench": "tsx src/workbench/server.ts",
     "multimodal": "tsx src/input/runWithAttachments.ts",
     "team": "tsx src/multiagent/runTeam.ts",
     "plan": "tsx src/workflow/createPlan.ts",
