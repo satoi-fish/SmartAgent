@@ -25,6 +25,13 @@ export interface WorkbenchMetric {
   tone?: WorkbenchTone;
 }
 
+export interface WorkbenchDataSourceMeta {
+  totalRuns: number;
+  realRuns: number;
+  demoRuns: number;
+  lastUpdatedAt: string;
+}
+
 export interface WorkbenchStageView {
   id: string;
   title: string;
@@ -53,6 +60,32 @@ export interface WorkbenchApprovalView {
   id: string;
   title: string;
   status: string;
+}
+
+export interface WorkbenchContextSnapshot {
+  goal?: string;
+  intent?: string;
+  riskLevel?: string;
+  mode?: string;
+  profile?: string;
+  routeDetail?: string;
+  historyIncluded?: number;
+  historySummarized?: boolean;
+  memoryIncluded?: number;
+  knowledgeIncluded?: number;
+  knowledgeSources: string[];
+  strategy: string[];
+}
+
+export interface WorkbenchDiagnosticsView {
+  totalEvents: number;
+  retries: number;
+  fallbacks: number;
+  approvalsRequested: number;
+  cacheHits: number;
+  cacheMisses: number;
+  cacheWrites: number;
+  totalTokens: number;
 }
 
 export interface WorkbenchPipelineView {
@@ -99,6 +132,7 @@ export interface WorkbenchRunView {
   id: string;
   source: "real" | "demo";
   label: string;
+  subtitle?: string;
   status: WorkbenchRunStatus;
   prompt: string;
   startedAt: string;
@@ -106,6 +140,8 @@ export interface WorkbenchRunView {
   provider: string;
   model: string;
   metrics: WorkbenchMetric[];
+  context: WorkbenchContextSnapshot;
+  diagnostics: WorkbenchDiagnosticsView;
   stages: WorkbenchStageView[];
   activities: WorkbenchActivityItem[];
   tools: WorkbenchToolView[];
@@ -119,8 +155,10 @@ export interface WorkbenchRunView {
 export interface WorkbenchRunListItem {
   id: string;
   label: string;
+  subtitle?: string;
   source: "real" | "demo";
   status: WorkbenchRunStatus;
   startedAt: string;
+  completedAt?: string;
   provider?: string;
 }

@@ -2,6 +2,7 @@ export const READ_ONLY_TOOL_NAMES = [
   "search_project_docs",
   "search_knowledge_base",
   "search_long_term_memory",
+  "query_seq_logs",
   "list_workspace_files",
   "read_workspace_file",
   "inspect_local_web_page",

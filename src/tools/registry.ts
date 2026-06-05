@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { LocalBrowserManager } from "../browser/localBrowserManager.js";
+import { createLogServiceFromEnv } from "../integrations/logs/registry.js";
 import type { KnowledgeStore } from "../knowledge/knowledgeStore.js";
 import type { MemoryStore } from "../memory/memoryStore.js";
 import type { AnyToolDefinition, ApprovalMode, ToolDefinition } from "../types/index.js";
@@ -26,6 +27,19 @@ const knowledgeSearchSchema = z.object({
 const memorySearchSchema = z.object({
   query: z.string().min(2),
   max_results: z.number().int().min(1).max(5).default(3),
+});
+
+const seqLogQuerySchema = z.object({
+  service: z.string().min(1).optional(),
+  environment: z.string().min(1).optional(),
+  text: z.string().min(1).optional(),
+  trace_id: z.string().min(1).optional(),
+  request_id: z.string().min(1).optional(),
+  deploy_sha: z.string().min(1).optional(),
+  levels: z.array(z.enum(["trace", "debug", "info", "warn", "error", "fatal"])).max(6).default([]),
+  from_utc: z.string().datetime().optional(),
+  to_utc: z.string().datetime().optional(),
+  limit: z.number().int().min(1).max(50).default(20),
 });
 
 const rememberFactSchema = z.object({
@@ -210,6 +224,7 @@ export function createToolRegistry(args: {
   memoryStore: MemoryStore;
   idempotencyStore: FileIdempotencyStore;
 }): AnyToolDefinition[] {
+  const logService = createLogServiceFromEnv(process.env);
   const workspaceTools = new WorkspaceTools(
     process.env.AGENT_WORKSPACE_ROOT,
     new ShellAuditStore(),
@@ -308,6 +323,128 @@ export function createToolRegistry(args: {
         `Long-term memory for "${result.query}":`,
         ...result.matches.map((match) => `- ${match.id}: ${match.text} [tags: ${match.tags.join(", ")}]`),
       ].join("\n");
+    },
+  };
+
+  const querySeqLogsTool: ToolDefinition<
+    z.infer<typeof seqLogQuerySchema>,
+    {
+      provider: string;
+      filterExpression?: string;
+      total: number;
+      entries: Array<{
+        id: string;
+        timestamp: string;
+        level: string;
+        service: string;
+        environment?: string;
+        message: string;
+        traceId?: string;
+        requestId?: string;
+        deploySha?: string;
+      }>;
+      summary: Array<{ fingerprint: string; count: number; sampleIds: string[] }>;
+    }
+  > = {
+    name: "query_seq_logs",
+    description:
+      "Query a configured Seq log server for recent events by service, time range, text, trace id, request id, deploy sha, or level.",
+    riskLevel: "low",
+    isReadOnly: true,
+    jsonSchema: {
+      type: "object",
+      properties: {
+        service: { type: "string" },
+        environment: { type: "string" },
+        text: { type: "string" },
+        trace_id: { type: "string" },
+        request_id: { type: "string" },
+        deploy_sha: { type: "string" },
+        levels: {
+          type: "array",
+          items: {
+            type: "string",
+            enum: ["trace", "debug", "info", "warn", "error", "fatal"],
+          },
+        },
+        from_utc: { type: "string" },
+        to_utc: { type: "string" },
+        limit: { type: "number" },
+      },
+      additionalProperties: false,
+    },
+    validate(rawArgs) {
+      return seqLogQuerySchema.parse(rawArgs);
+    },
+    requiresApproval: () => false,
+    async execute(input) {
+      if (!logService) {
+        throw new Error("Seq log integration is not configured. Set AGENT_LOG_PLATFORM=seq and SEQ_BASE_URL first.");
+      }
+
+      const result = await logService.searchLogs({
+        service: input.service,
+        environment: input.environment,
+        text: input.text,
+        traceId: input.trace_id,
+        requestId: input.request_id,
+        deploySha: input.deploy_sha,
+        levels: input.levels.length > 0 ? input.levels : undefined,
+        limit: input.limit,
+        timeRange:
+          input.from_utc || input.to_utc
+            ? {
+                from: input.from_utc,
+                to: input.to_utc,
+              }
+            : undefined,
+      });
+
+      return {
+        provider: result.provider,
+        filterExpression: result.filterExpression,
+        total: result.total,
+        entries: result.entries.map((entry) => ({
+          id: entry.id,
+          timestamp: entry.timestamp,
+          level: entry.level,
+          service: entry.service,
+          environment: entry.environment,
+          message: entry.message,
+          traceId: entry.traceId,
+          requestId: entry.requestId,
+          deploySha: entry.deploySha,
+        })),
+        summary: result.summary,
+      };
+    },
+    renderForModel(result) {
+      const summaryLines = result.summary.length
+        ? result.summary.map((item) => `- ${item.count}x ${item.fingerprint}`).join("\n")
+        : "- none";
+      const entryLines = result.entries.length
+        ? result.entries
+            .slice(0, 10)
+            .map(
+              (entry) =>
+                `- [${entry.timestamp}] ${entry.level.toUpperCase()} ${entry.service}${
+                  entry.environment ? ` (${entry.environment})` : ""
+                }: ${entry.message}${
+                  entry.traceId ? ` | trace=${entry.traceId}` : ""
+                }${entry.requestId ? ` | request=${entry.requestId}` : ""}${
+                  entry.deploySha ? ` | deploy=${entry.deploySha}` : ""
+                }`,
+            )
+            .join("\n")
+        : "- none";
+
+      return [
+        `Log provider: ${result.provider}`,
+        `Matched entries: ${result.total}`,
+        result.filterExpression ? `Seq filter: ${result.filterExpression}` : "Seq filter: <none>",
+        `Top patterns:\n${summaryLines}`,
+        `Entries:\n${entryLines}`,
+      ].join("\n\n");
     },
   };
 
@@ -819,6 +956,7 @@ export function createToolRegistry(args: {
     searchProjectDocsTool,
     searchKnowledgeBaseTool,
     searchLongTermMemoryTool,
+    ...(logService ? [querySeqLogsTool] : []),
     rememberProjectFactTool,
     forgetProjectMemoryTool,
     listWorkspaceFilesTool,

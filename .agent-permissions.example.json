@@ -2,6 +2,7 @@
   "permissions": {
     "allow": [
       "search_*",
+      "query_seq_logs",
       "list_workspace_files",
       "read_workspace_file",
       "inspect_local_web_page",

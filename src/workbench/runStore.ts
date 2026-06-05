@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 
 import { buildWorkbenchRunView } from "./buildRunView.js";
 import { buildDemoPipelineRun } from "./demoRun.js";
-import type { PersistedRunLog, WorkbenchRunListItem, WorkbenchRunView } from "./types.js";
+import type { PersistedRunLog, WorkbenchDataSourceMeta, WorkbenchRunListItem, WorkbenchRunView } from "./types.js";
 
 function getLogDir(logDir?: string): string {
   return logDir ?? resolve(process.cwd(), ".agent-runs");
@@ -45,9 +45,11 @@ export async function listWorkbenchRuns(logDir?: string): Promise<WorkbenchRunLi
     return {
       id: view.id,
       label: view.label,
+      subtitle: view.subtitle,
       source: view.source,
       status: view.status,
       startedAt: view.startedAt,
+      completedAt: view.completedAt,
       provider: view.provider,
     } satisfies WorkbenchRunListItem;
   });
@@ -63,10 +65,22 @@ function buildDemoRunListItem(): WorkbenchRunListItem {
   return {
     id: demo.id,
     label: demo.label,
+    subtitle: demo.subtitle,
     source: demo.source,
     status: demo.status,
     startedAt: demo.startedAt,
+    completedAt: demo.completedAt,
     provider: demo.provider,
+  };
+}
+
+export async function loadWorkbenchMeta(logDir?: string): Promise<WorkbenchDataSourceMeta> {
+  const persistedRuns = await listPersistedRunLogs(logDir);
+  return {
+    totalRuns: persistedRuns.length + 1,
+    realRuns: persistedRuns.length,
+    demoRuns: 1,
+    lastUpdatedAt: new Date().toISOString(),
   };
 }
 

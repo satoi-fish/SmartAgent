@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
-import { listWorkbenchRuns, loadDefaultWorkbenchRun, loadWorkbenchRun } from "./runStore.js";
+import { listWorkbenchRuns, loadDefaultWorkbenchRun, loadWorkbenchMeta, loadWorkbenchRun } from "./runStore.js";
 
 function parseArgs(argv: string[]): { host: string; port: number } {
   const args = { host: "127.0.0.1", port: 4173 };
@@ -52,6 +52,13 @@ const server = createServer(async (request, response) => {
     const runs = await listWorkbenchRuns();
     response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
     response.end(JSON.stringify({ runs }, null, 2));
+    return;
+  }
+
+  if (url.pathname === "/api/workbench/meta") {
+    const meta = await loadWorkbenchMeta();
+    response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+    response.end(JSON.stringify(meta, null, 2));
     return;
   }
 

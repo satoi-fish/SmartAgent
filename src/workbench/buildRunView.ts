@@ -4,6 +4,11 @@ import type {
   PersistedRunLog,
   WorkbenchActivityItem,
   WorkbenchApprovalView,
+  WorkbenchBrowserTestView,
+  WorkbenchContextSnapshot,
+  WorkbenchDiagnosticsView,
+  WorkbenchLogInsightView,
+  WorkbenchPipelineView,
   WorkbenchRunStatus,
   WorkbenchRunView,
   WorkbenchStageStatus,
@@ -37,6 +42,22 @@ function metricTone(status: WorkbenchRunStatus): "success" | "warning" | "danger
     default:
       return "warning";
   }
+}
+
+function compactText(value: string, maxLength = 96): string {
+  if (value.length <= maxLength) {
+    return value;
+  }
+
+  return `${value.slice(0, maxLength - 1).trimEnd()}…`;
+}
+
+function buildRunLabel(log: PersistedRunLog): { label: string; subtitle: string } {
+  const prompt = log.summary.prompt.trim();
+  return {
+    label: compactText(prompt || log.runId, 54),
+    subtitle: `${log.summary.provider} · ${log.summary.model} · ${log.runId.slice(0, 18)}`,
+  };
 }
 
 function activityFromEvent(index: number, timestamp: string, event: AgentEvent): WorkbenchActivityItem | null {
@@ -205,6 +226,189 @@ function buildApprovals(log: PersistedRunLog): WorkbenchApprovalView[] {
   return [...approvals.values()];
 }
 
+function buildContextSnapshot(log: PersistedRunLog): WorkbenchContextSnapshot {
+  const snapshot: WorkbenchContextSnapshot = {
+    knowledgeSources: [],
+    strategy: [],
+  };
+
+  for (const entry of log.events) {
+    switch (entry.event.type) {
+      case "run_started":
+        snapshot.mode = entry.event.mode;
+        snapshot.profile = entry.event.profile;
+        snapshot.routeDetail = entry.event.detail;
+        break;
+      case "task_parsed":
+        snapshot.goal = entry.event.goal;
+        snapshot.intent = entry.event.intent;
+        snapshot.riskLevel = entry.event.riskLevel;
+        break;
+      case "context_compacted":
+        snapshot.historyIncluded = entry.event.history_included;
+        snapshot.historySummarized = entry.event.history_summarized;
+        snapshot.memoryIncluded = entry.event.memory_included;
+        snapshot.knowledgeIncluded = entry.event.knowledge_included;
+        snapshot.strategy = entry.event.strategy;
+        break;
+      case "knowledge_retrieved":
+        snapshot.knowledgeSources = entry.event.sources;
+        break;
+      default:
+        break;
+    }
+  }
+
+  return snapshot;
+}
+
+function buildDiagnostics(log: PersistedRunLog): WorkbenchDiagnosticsView {
+  let retries = 0;
+  let fallbacks = 0;
+  let approvalsRequested = 0;
+  let cacheHits = 0;
+  let cacheMisses = 0;
+  let cacheWrites = 0;
+
+  for (const entry of log.events) {
+    switch (entry.event.type) {
+      case "run_retrying":
+        retries += 1;
+        break;
+      case "fallback_used":
+        fallbacks += 1;
+        break;
+      case "approval_requested":
+        approvalsRequested += 1;
+        break;
+      case "cache_event":
+        if (entry.event.status === "hit") {
+          cacheHits += 1;
+        } else if (entry.event.status === "miss") {
+          cacheMisses += 1;
+        } else {
+          cacheWrites += 1;
+        }
+        break;
+      default:
+        break;
+    }
+  }
+
+  return {
+    totalEvents: log.events.length,
+    retries,
+    fallbacks,
+    approvalsRequested,
+    cacheHits,
+    cacheMisses,
+    cacheWrites,
+    totalTokens: log.summary.totalTokens,
+  };
+}
+
+function toolStatusTone(status: string): "passed" | "warning" | "failed" {
+  if (status === "success") {
+    return "passed";
+  }
+  if (status === "error" || status === "cancelled") {
+    return "failed";
+  }
+  return "warning";
+}
+
+function inferPipelineView(args: {
+  tools: WorkbenchToolView[];
+  diagnostics: WorkbenchDiagnosticsView;
+  status: WorkbenchRunStatus;
+}): WorkbenchPipelineView | undefined {
+  const pipelineTools = args.tools.filter((tool) =>
+    ["trigger_pipeline", "get_ci_status", "deploy_to_staging", "get_deploy_status", "rollback_staging"].includes(
+      tool.name,
+    ),
+  );
+
+  if (pipelineTools.length === 0) {
+    return undefined;
+  }
+
+  return {
+    title: "Execution Pipeline",
+    provider: "inferred-from-tools",
+    status: args.status === "failed" ? "failed" : "active",
+    summary:
+      args.diagnostics.retries > 0
+        ? "This run retried at least once after a failed execution step."
+        : "Pipeline-related tools were used during this run.",
+    jobs: pipelineTools.map((tool) => ({
+      name: tool.name,
+      status: toolStatusTone(tool.latestStatus),
+    })),
+  };
+}
+
+function inferLogInsightView(args: {
+  tools: WorkbenchToolView[];
+  context: WorkbenchContextSnapshot;
+}): WorkbenchLogInsightView | undefined {
+  const logTools = args.tools.filter((tool) => tool.name.includes("log") || tool.name.includes("trace"));
+  if (logTools.length === 0 && args.context.knowledgeSources.length === 0) {
+    return undefined;
+  }
+
+  const highlights = [
+    ...logTools.slice(0, 3).map((tool) => `${tool.name}: ${tool.lastDetail ?? tool.latestStatus}`),
+    ...args.context.knowledgeSources.slice(0, 2).map((source) => `Context source: ${source}`),
+  ].slice(0, 4);
+
+  return {
+    title: "Observed Insights",
+    provider: logTools.length > 0 ? "inferred-from-tools" : "knowledge-context",
+    status: logTools.some((tool) => tool.latestStatus === "error") ? "warning" : "ready",
+    summary:
+      logTools.length > 0
+        ? "This run touched log/trace-related capabilities or context sources."
+        : "No dedicated log adapter was used yet, but contextual sources were loaded for analysis.",
+    highlights,
+  };
+}
+
+function inferBrowserTestView(args: {
+  tools: WorkbenchToolView[];
+  approvals: WorkbenchApprovalView[];
+}): WorkbenchBrowserTestView | undefined {
+  const browserTools = args.tools.filter(
+    (tool) => tool.name.startsWith("browser_") || tool.name === "run_click_test" || tool.name === "capture_browser_trace",
+  );
+
+  if (browserTools.length === 0) {
+    return undefined;
+  }
+
+  const artifacts = browserTools
+    .map((tool) => tool.lastDetail)
+    .filter((item): item is string => Boolean(item))
+    .slice(0, 3);
+
+  return {
+    title: "Browser Activity",
+    provider: "inferred-from-tools",
+    status: browserTools.some((tool) => tool.latestStatus === "error") ? "failed" : "active",
+    scenario:
+      args.approvals.length > 0
+        ? "Browser-assisted run with approval checkpoints"
+        : "Browser-assisted interaction captured from tool events",
+    summary:
+      browserTools.length === 1
+        ? "A browser capability was used during this run."
+        : `${browserTools.length} browser-related tool flows were recorded during this run.`,
+    screenshots: browserTools
+      .filter((tool) => tool.name.includes("screenshot"))
+      .map((tool) => tool.name),
+    artifacts,
+  };
+}
+
 function stageStatus(args: {
   complete: boolean;
   failed: boolean;
@@ -223,17 +427,24 @@ export function buildWorkbenchRunView(log: PersistedRunLog): WorkbenchRunView {
   const status = asRunStatus(log);
   const approvals = buildApprovals(log);
   const tools = buildTools(log);
+  const context = buildContextSnapshot(log);
+  const diagnostics = buildDiagnostics(log);
   const activities = log.events
     .map((entry, index) => activityFromEvent(index, entry.timestamp, entry.event))
     .filter((item): item is WorkbenchActivityItem => Boolean(item));
   const eventTypes = new Set(log.events.map((entry) => entry.event.type));
   const hasFailure = status === "failed";
   const isBlocked = status === "blocked";
+  const label = buildRunLabel(log);
+  const pipeline = inferPipelineView({ tools, diagnostics, status });
+  const logs = inferLogInsightView({ tools, context });
+  const browserTest = inferBrowserTestView({ tools, approvals });
 
   return {
     id: log.runId,
     source: "real",
-    label: `Run ${log.runId.slice(0, 18)}`,
+    label: label.label,
+    subtitle: label.subtitle,
     status,
     prompt: log.summary.prompt,
     startedAt: log.startedAt,
@@ -252,6 +463,8 @@ export function buildWorkbenchRunView(log: PersistedRunLog): WorkbenchRunView {
         tone: log.summary.needsHumanReview ? "warning" : "success",
       },
     ],
+    context,
+    diagnostics,
     stages: [
       {
         id: "intake",
@@ -320,5 +533,8 @@ export function buildWorkbenchRunView(log: PersistedRunLog): WorkbenchRunView {
       citations: log.summary.citations,
       needsHumanReview: log.summary.needsHumanReview,
     },
+    pipeline,
+    logs,
+    browserTest,
   };
 }
