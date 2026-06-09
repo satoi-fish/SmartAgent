@@ -190,3 +190,53 @@ export interface WorkbenchRunListItem {
   completedAt?: string;
   provider?: string;
 }
+
+export interface WorkbenchApprovalRecord {
+  id: string;
+  prompt: string;
+  status: string;
+  updatedAt: string;
+  summary: string;
+}
+
+export interface WorkbenchTaskRecord {
+  id: string;
+  prompt: string;
+  status: string;
+  trigger: string;
+  updatedAt: string;
+  approvalId?: string;
+  scheduleId?: string;
+  runId?: string;
+  error?: string;
+}
+
+export interface WorkbenchScheduleRecord {
+  id: string;
+  prompt: string;
+  status: string;
+  kind: string;
+  nextRunAt?: string;
+  updatedAt: string;
+  approvalId?: string;
+  totalRuns: number;
+}
+
+export interface WorkbenchRepositoryState {
+  branch: string;
+  ahead: number;
+  behind: number;
+  isClean: boolean;
+  changedFiles: Array<{
+    path: string;
+    indexStatus: string;
+    workTreeStatus: string;
+  }>;
+}
+
+export interface WorkbenchOperationsState {
+  approvals: WorkbenchApprovalRecord[];
+  tasks: WorkbenchTaskRecord[];
+  schedules: WorkbenchScheduleRecord[];
+  repository: WorkbenchRepositoryState | null;
+}

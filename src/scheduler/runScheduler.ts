@@ -1,8 +1,6 @@
 import "dotenv/config";
 
-import { ApprovalStore } from "../workflow/approvalStore.js";
-import { TaskQueueStore } from "../queue/taskQueue.js";
-import { ScheduleStore } from "./scheduleStore.js";
+import { tickSchedulerOnce } from "./tickScheduler.js";
 
 const watchMode = process.argv[2] === "watch";
 const watchSeconds = Number(process.argv[3] ?? "30");
@@ -12,67 +10,27 @@ if (watchMode && (!Number.isFinite(watchSeconds) || watchSeconds <= 0)) {
   process.exit(1);
 }
 
-const scheduleStore = new ScheduleStore();
-const taskQueue = new TaskQueueStore();
-const approvalStore = new ApprovalStore();
-
 if (!watchMode) {
-  await tick();
+  await tickAndPrint();
   process.exit(0);
 }
 
 process.stdout.write(`Scheduler watch mode started; polling every ${watchSeconds}s\n`);
 // eslint-disable-next-line no-constant-condition
 while (true) {
-  await tick();
+  await tickAndPrint();
   await sleep(watchSeconds * 1000);
 }
 
-async function tick(): Promise<void> {
-  const claimedSchedules = await scheduleStore.claimDue();
-  if (claimedSchedules.length === 0) {
+async function tickAndPrint(): Promise<void> {
+  const results = await tickSchedulerOnce();
+  if (results.length === 0) {
     process.stdout.write("No due schedules.\n");
     return;
   }
 
-  for (const claimed of claimedSchedules) {
-    const schedule = claimed.schedule;
-    if (schedule.approvalId) {
-      const approval = await approvalStore.get(schedule.approvalId);
-      if (!approval || approval.status !== "approved") {
-        process.stdout.write(
-          `Schedule ${schedule.id} is waiting on approval ${schedule.approvalId}; skipped for now.\n`,
-        );
-        await scheduleStore.releaseClaim({
-          scheduleId: schedule.id,
-          claimId: claimed.claimId,
-        });
-        continue;
-      }
-    }
-
-    try {
-      const task = await taskQueue.enqueue({
-        prompt: schedule.prompt,
-        approvalId: schedule.approvalId,
-        scheduleId: schedule.id,
-        trigger: "schedule",
-      });
-
-      await scheduleStore.markTriggered({
-        scheduleId: schedule.id,
-        taskId: task.id,
-        claimId: claimed.claimId,
-      });
-
-      process.stdout.write(`Triggered ${schedule.id} -> queued ${task.id}\n`);
-    } catch (error) {
-      await scheduleStore.releaseClaim({
-        scheduleId: schedule.id,
-        claimId: claimed.claimId,
-      });
-      throw error;
-    }
+  for (const item of results) {
+    process.stdout.write(`${item.message}\n`);
   }
 }
 

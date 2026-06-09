@@ -1,0 +1,745 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SmartAgent Console</title>
+    <style>
+      :root {
+        --bg: #f7f2ea;
+        --panel: rgba(255, 251, 246, 0.92);
+        --panel-strong: #fffdfa;
+        --line: rgba(34, 43, 38, 0.12);
+        --text: #1c2925;
+        --muted: #617067;
+        --accent: #146f61;
+        --accent-soft: rgba(20, 111, 97, 0.12);
+        --success: #216a3d;
+        --warning: #9b6417;
+        --danger: #a53a3a;
+        --shadow: 0 20px 60px rgba(65, 43, 22, 0.1);
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+        color: var(--text);
+        background:
+          radial-gradient(circle at top left, rgba(20, 111, 97, 0.18), transparent 24%),
+          radial-gradient(circle at top right, rgba(155, 100, 23, 0.16), transparent 22%),
+          linear-gradient(180deg, #fcf8f1 0%, #efe6d9 100%);
+      }
+
+      .shell {
+        max-width: 1480px;
+        margin: 0 auto;
+        padding: 28px 22px 48px;
+      }
+
+      .hero,
+      .grid {
+        display: grid;
+        gap: 20px;
+      }
+
+      .hero {
+        grid-template-columns: 1.35fr 0.65fr;
+        margin-bottom: 22px;
+      }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 24px;
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(10px);
+        padding: 22px;
+      }
+
+      .label {
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: var(--muted);
+      }
+
+      h1, h2, h3 {
+        margin: 10px 0 0;
+        letter-spacing: -0.04em;
+      }
+
+      h1 {
+        font-size: clamp(2rem, 5vw, 3.3rem);
+        line-height: 0.95;
+      }
+
+      p {
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      .hero-actions {
+        display: flex;
+        gap: 12px;
+        margin-top: 18px;
+        flex-wrap: wrap;
+      }
+
+      .hero-actions a,
+      button {
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 12px 14px;
+        background: var(--panel-strong);
+        color: var(--text);
+        font: inherit;
+        text-decoration: none;
+        cursor: pointer;
+        transition: transform 160ms ease, opacity 160ms ease;
+      }
+
+      button.primary,
+      .hero-actions a.primary {
+        background: var(--text);
+        color: #fff;
+      }
+
+      button:hover,
+      .hero-actions a:hover {
+        transform: translateY(-1px);
+        opacity: 0.95;
+      }
+
+      .hero-meta {
+        display: grid;
+        gap: 14px;
+      }
+
+      .hero-stat {
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 14px 16px;
+        background: rgba(255,255,255,0.48);
+      }
+
+      .hero-stat strong {
+        display: block;
+        margin-top: 8px;
+        font-size: 1.2rem;
+      }
+
+      .grid.two {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .grid.three {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .grid.main {
+        grid-template-columns: 1.15fr 0.85fr;
+        align-items: start;
+      }
+
+      .stack {
+        display: grid;
+        gap: 20px;
+      }
+
+      .form-grid {
+        display: grid;
+        gap: 12px;
+      }
+
+      .split {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      label {
+        display: grid;
+        gap: 8px;
+        color: var(--muted);
+        font-size: 0.94rem;
+      }
+
+      input,
+      select,
+      textarea {
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 12px 13px;
+        background: var(--panel-strong);
+        color: var(--text);
+        font: inherit;
+      }
+
+      textarea {
+        min-height: 120px;
+        resize: vertical;
+      }
+
+      .button-row {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .button-row button {
+        flex: 1;
+        min-width: 140px;
+      }
+
+      .status {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-size: 0.82rem;
+      }
+
+      .status.success { background: rgba(33, 106, 61, 0.12); color: var(--success); }
+      .status.warning { background: rgba(155, 100, 23, 0.13); color: var(--warning); }
+      .status.danger { background: rgba(165, 58, 58, 0.12); color: var(--danger); }
+
+      .list {
+        display: grid;
+        gap: 12px;
+      }
+
+      .item {
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 14px 15px;
+        background: rgba(255,255,255,0.52);
+      }
+
+      .item-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 8px;
+      }
+
+      .item strong {
+        display: block;
+      }
+
+      .meta {
+        margin-top: 8px;
+        font-size: 0.88rem;
+        color: var(--muted);
+      }
+
+      .empty {
+        border: 1px dashed var(--line);
+        border-radius: 18px;
+        padding: 18px;
+        color: var(--muted);
+        background: rgba(255,255,255,0.36);
+      }
+
+      pre {
+        margin: 0;
+        border-radius: 18px;
+        padding: 16px;
+        border: 1px solid var(--line);
+        background: #fbf7f0;
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 0.87rem;
+        line-height: 1.55;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      @media (max-width: 1180px) {
+        .hero,
+        .grid.two,
+        .grid.three,
+        .grid.main,
+        .split {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <section class="hero">
+        <article class="panel">
+          <div class="label">SmartAgent Console</div>
+          <h1>Operate The Agent, Not Just Observe It</h1>
+          <p>
+            这里是 SmartAgent 的操作入口。你可以直接发起任务、生成审批计划、执行已批准请求、入队后台任务、创建调度，
+            同时查看仓库状态、审批队列、任务队列和调度状态。
+          </p>
+          <div class="hero-actions">
+            <a class="primary" href="/observability">Open Observability View</a>
+            <button id="refreshStateButton" type="button">Refresh Control State</button>
+          </div>
+        </article>
+
+        <article class="panel hero-meta">
+          <div class="hero-stat">
+            <div class="label">Repository</div>
+            <strong id="repoHeadline">Loading…</strong>
+            <p id="repoSummary">Fetching current repository status.</p>
+          </div>
+          <div class="hero-stat">
+            <div class="label">Protection</div>
+            <strong id="authHeadline">Open</strong>
+            <p>Mutating endpoints optionally accept a bearer token from <code>WORKBENCH_API_TOKEN</code>.</p>
+          </div>
+          <div class="hero-stat">
+            <div class="label">Last Result</div>
+            <strong id="lastResultHeadline">Idle</strong>
+            <p id="lastResultSummary">No control action has been run yet.</p>
+          </div>
+        </article>
+      </section>
+
+      <section class="grid main">
+        <div class="stack">
+          <article class="panel">
+            <div class="label">Auth</div>
+            <h2>Console Session</h2>
+            <div class="form-grid" style="margin-top: 16px;">
+              <label>
+                Bearer Token
+                <input id="tokenInput" type="password" placeholder="Optional. Stored locally in this browser." />
+              </label>
+              <div class="button-row">
+                <button id="saveTokenButton" type="button">Save Token</button>
+                <button id="clearTokenButton" type="button">Clear Token</button>
+              </div>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="label">Run</div>
+            <h2>Interactive Task</h2>
+            <div class="form-grid" style="margin-top: 16px;">
+              <label>
+                Prompt
+                <textarea id="runPrompt"></textarea>
+              </label>
+              <div class="split">
+                <label>
+                  Provider
+                  <select id="runProvider">
+                    <option value="openai">openai</option>
+                    <option value="anthropic">anthropic</option>
+                    <option value="google">google</option>
+                    <option value="deepseek">deepseek</option>
+                    <option value="azure-openai">azure-openai</option>
+                  </select>
+                </label>
+                <label>
+                  Mode
+                  <select id="runMode">
+                    <option value="default">default</option>
+                    <option value="plan">plan</option>
+                    <option value="auto">auto</option>
+                  </select>
+                </label>
+              </div>
+              <label>
+                Team Mode
+                <select id="runTeamMode">
+                  <option value="">single</option>
+                  <option value="planner_reviewer">planner_reviewer</option>
+                </select>
+              </label>
+              <div class="button-row">
+                <button class="primary" id="runTaskButton" type="button">Run Task</button>
+                <button id="createPlanButton" type="button">Create Approval Plan</button>
+              </div>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="label">Background</div>
+            <h2>Queue And Schedule</h2>
+            <div class="form-grid" style="margin-top: 16px;">
+              <label>
+                Task Prompt
+                <textarea id="queuePrompt"></textarea>
+              </label>
+              <label>
+                Optional Approval ID
+                <input id="queueApprovalId" type="text" placeholder="approval_xxx" />
+              </label>
+              <div class="button-row">
+                <button id="enqueueTaskButton" type="button">Enqueue Task</button>
+                <button id="workerTickButton" type="button">Run Worker Tick</button>
+              </div>
+              <hr style="border:none;border-top:1px solid var(--line);margin:4px 0;" />
+              <div class="split">
+                <label>
+                  Schedule Kind
+                  <select id="scheduleKind">
+                    <option value="once">once</option>
+                    <option value="interval">interval</option>
+                  </select>
+                </label>
+                <label>
+                  Approval ID
+                  <input id="scheduleApprovalId" type="text" placeholder="Optional approval" />
+                </label>
+              </div>
+              <label>
+                Schedule Prompt
+                <textarea id="schedulePrompt"></textarea>
+              </label>
+              <div class="split">
+                <label>
+                  ISO Run At
+                  <input id="scheduleRunAt" type="text" placeholder="2026-06-10T09:00:00Z" />
+                </label>
+                <label>
+                  Every Minutes
+                  <input id="scheduleEveryMinutes" type="number" min="1" placeholder="30" />
+                </label>
+              </div>
+              <div class="button-row">
+                <button id="createScheduleButton" type="button">Create Schedule</button>
+                <button id="schedulerTickButton" type="button">Run Scheduler Tick</button>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <div class="stack">
+          <article class="panel">
+            <div class="label">Feedback</div>
+            <h2>Action Result</h2>
+            <pre id="resultConsole">No action has run yet.</pre>
+          </article>
+
+          <article class="panel">
+            <div class="label">Repository</div>
+            <h2>Git Snapshot</h2>
+            <div id="repositoryState" class="empty">Loading repository state…</div>
+          </article>
+        </div>
+      </section>
+
+      <section class="grid three" style="margin-top: 22px;">
+        <article class="panel">
+          <div class="label">Approvals</div>
+          <h2>Recent Approval Requests</h2>
+          <div class="list" id="approvalList" style="margin-top: 16px;"></div>
+        </article>
+        <article class="panel">
+          <div class="label">Tasks</div>
+          <h2>Queue State</h2>
+          <div class="list" id="taskList" style="margin-top: 16px;"></div>
+        </article>
+        <article class="panel">
+          <div class="label">Schedules</div>
+          <h2>Scheduler State</h2>
+          <div class="list" id="scheduleList" style="margin-top: 16px;"></div>
+        </article>
+      </section>
+    </div>
+
+    <script>
+      const state = {
+        token: localStorage.getItem("smartagent.console.token") || "",
+        authRequired: false,
+      };
+
+      const elements = {
+        tokenInput: document.getElementById("tokenInput"),
+        repoHeadline: document.getElementById("repoHeadline"),
+        repoSummary: document.getElementById("repoSummary"),
+        authHeadline: document.getElementById("authHeadline"),
+        resultConsole: document.getElementById("resultConsole"),
+        lastResultHeadline: document.getElementById("lastResultHeadline"),
+        lastResultSummary: document.getElementById("lastResultSummary"),
+        repositoryState: document.getElementById("repositoryState"),
+        approvalList: document.getElementById("approvalList"),
+        taskList: document.getElementById("taskList"),
+        scheduleList: document.getElementById("scheduleList"),
+      };
+
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;");
+      }
+
+      function renderStatusClass(status) {
+        const normalized = String(status || "").toLowerCase();
+        if (["completed", "success", "approved", "queued", "clean"].includes(normalized)) return "success";
+        if (["rejected", "failed", "error"].includes(normalized)) return "danger";
+        if (["pending", "running", "dispatching", "waiting_approval"].includes(normalized)) return "warning";
+        return "";
+      }
+
+      function getAuthHeaders() {
+        const headers = { "content-type": "application/json" };
+        if (state.token) {
+          headers.authorization = "Bearer " + state.token;
+        }
+        return headers;
+      }
+
+      async function fetchJson(url, options) {
+        const response = await fetch(url, options);
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          const message = payload && payload.error ? payload.error : "Request failed: " + response.status;
+          throw new Error(message);
+        }
+        return payload;
+      }
+
+      function setResult(title, payload) {
+        elements.lastResultHeadline.textContent = title;
+        elements.lastResultSummary.textContent =
+          payload && typeof payload === "object" && "summary" in payload
+            ? String(payload.summary)
+            : "Action completed.";
+        elements.resultConsole.textContent = JSON.stringify(payload, null, 2);
+      }
+
+      function renderRepository(repository) {
+        if (!repository) {
+          elements.repoHeadline.textContent = "Unavailable";
+          elements.repoSummary.textContent = "Git status could not be loaded from this workspace.";
+          elements.repositoryState.className = "empty";
+          elements.repositoryState.textContent = "Repository state is unavailable.";
+          return;
+        }
+
+        elements.repoHeadline.textContent = repository.branch + (repository.isClean ? " · clean" : " · dirty");
+        elements.repoSummary.textContent =
+          "Ahead " + repository.ahead + ", behind " + repository.behind + ", changed files " + repository.changedFiles.length + ".";
+        elements.repositoryState.className = "list";
+        elements.repositoryState.innerHTML = repository.changedFiles.length
+          ? repository.changedFiles
+              .map((file) =>
+                '<div class="item"><div class="item-head"><strong>' +
+                escapeHtml(file.path) +
+                '</strong><span class="status ' +
+                renderStatusClass("dirty") +
+                '">' +
+                escapeHtml(file.indexStatus + file.workTreeStatus) +
+                '</span></div><p>Index: ' +
+                escapeHtml(file.indexStatus) +
+                ' · Work tree: ' +
+                escapeHtml(file.workTreeStatus) +
+                "</p></div>",
+              )
+              .join("")
+          : '<div class="empty">Repository is clean.</div>';
+      }
+
+      function renderApprovalList(approvals) {
+        if (!approvals.length) {
+          elements.approvalList.innerHTML = '<div class="empty">No approvals yet.</div>';
+          return;
+        }
+
+        elements.approvalList.innerHTML = approvals
+          .map(
+            (item) =>
+              '<div class="item"><div class="item-head"><div><strong>' +
+              escapeHtml(item.id) +
+              '</strong><p>' +
+              escapeHtml(item.summary) +
+              '</p></div><span class="status ' +
+              renderStatusClass(item.status) +
+              '">' +
+              escapeHtml(item.status) +
+              '</span></div><div class="meta">' +
+              escapeHtml(item.prompt) +
+              '</div><div class="button-row" style="margin-top:12px;"><button data-approve="' +
+              escapeHtml(item.id) +
+              '" data-status="approved" type="button">Approve</button><button data-approve="' +
+              escapeHtml(item.id) +
+              '" data-status="rejected" type="button">Reject</button><button data-execute="' +
+              escapeHtml(item.id) +
+              '" type="button">Execute</button></div></div>',
+          )
+          .join("");
+
+        document.querySelectorAll("[data-approve]").forEach((node) => {
+          node.addEventListener("click", async () => {
+            await mutate("/api/control/approvals/" + node.getAttribute("data-approve"), {
+              status: node.getAttribute("data-status"),
+            }, "Approval updated");
+          });
+        });
+
+        document.querySelectorAll("[data-execute]").forEach((node) => {
+          node.addEventListener("click", async () => {
+            await mutate("/api/control/execute-approved", {
+              approvalId: node.getAttribute("data-execute"),
+              providerName: document.getElementById("runProvider").value,
+            }, "Approved execution complete");
+          });
+        });
+      }
+
+      function renderTaskList(tasks) {
+        elements.taskList.innerHTML = tasks.length
+          ? tasks
+              .map(
+                (item) =>
+                  '<div class="item"><div class="item-head"><div><strong>' +
+                  escapeHtml(item.id) +
+                  '</strong><p>' +
+                  escapeHtml(item.prompt) +
+                  '</p></div><span class="status ' +
+                  renderStatusClass(item.status) +
+                  '">' +
+                  escapeHtml(item.status) +
+                  '</span></div><div class="meta">trigger=' +
+                  escapeHtml(item.trigger) +
+                  (item.approvalId ? " · approval=" + escapeHtml(item.approvalId) : "") +
+                  (item.runId ? " · run=" + escapeHtml(item.runId) : "") +
+                  (item.error ? " · error=" + escapeHtml(item.error) : "") +
+                  "</div></div>",
+              )
+              .join("")
+          : '<div class="empty">No queued or historical tasks yet.</div>';
+      }
+
+      function renderScheduleList(schedules) {
+        elements.scheduleList.innerHTML = schedules.length
+          ? schedules
+              .map(
+                (item) =>
+                  '<div class="item"><div class="item-head"><div><strong>' +
+                  escapeHtml(item.id) +
+                  '</strong><p>' +
+                  escapeHtml(item.prompt) +
+                  '</p></div><span class="status ' +
+                  renderStatusClass(item.status) +
+                  '">' +
+                  escapeHtml(item.status) +
+                  '</span></div><div class="meta">' +
+                  escapeHtml(item.kind) +
+                  (item.nextRunAt ? " · next=" + escapeHtml(item.nextRunAt) : "") +
+                  " · runs=" +
+                  escapeHtml(String(item.totalRuns)) +
+                  (item.approvalId ? " · approval=" + escapeHtml(item.approvalId) : "") +
+                  "</div></div>",
+              )
+              .join("")
+          : '<div class="empty">No schedules yet.</div>';
+      }
+
+      async function loadState() {
+        const payload = await fetchJson("/api/control/state");
+        renderRepository(payload.repository);
+        renderApprovalList(payload.approvals || []);
+        renderTaskList(payload.tasks || []);
+        renderScheduleList(payload.schedules || []);
+      }
+
+      async function loadConfig() {
+        const payload = await fetchJson("/api/control/config");
+        state.authRequired = Boolean(payload.authRequired);
+        elements.authHeadline.textContent = state.authRequired ? "Bearer Required" : "No Token Required";
+      }
+
+      async function mutate(url, body, title) {
+        const payload = await fetchJson(url, {
+          method: "POST",
+          headers: getAuthHeaders(),
+          body: JSON.stringify(body || {}),
+        });
+        setResult(title, payload);
+        await loadState();
+        return payload;
+      }
+
+      document.getElementById("saveTokenButton").addEventListener("click", () => {
+        state.token = elements.tokenInput.value.trim();
+        localStorage.setItem("smartagent.console.token", state.token);
+        setResult("Token saved", { ok: true, tokenStored: Boolean(state.token), authRequired: state.authRequired });
+      });
+
+      document.getElementById("clearTokenButton").addEventListener("click", () => {
+        state.token = "";
+        elements.tokenInput.value = "";
+        localStorage.removeItem("smartagent.console.token");
+        setResult("Token cleared", { ok: true });
+      });
+
+      document.getElementById("refreshStateButton").addEventListener("click", async () => {
+        await loadState();
+        setResult("State refreshed", { ok: true });
+      });
+
+      document.getElementById("runTaskButton").addEventListener("click", async () => {
+        await mutate("/api/control/run", {
+          prompt: document.getElementById("runPrompt").value,
+          providerName: document.getElementById("runProvider").value,
+          mode: document.getElementById("runMode").value,
+          teamMode: document.getElementById("runTeamMode").value || undefined,
+        }, "Task run completed");
+      });
+
+      document.getElementById("createPlanButton").addEventListener("click", async () => {
+        await mutate("/api/control/plan", {
+          prompt: document.getElementById("runPrompt").value,
+          providerName: document.getElementById("runProvider").value,
+        }, "Plan created");
+      });
+
+      document.getElementById("enqueueTaskButton").addEventListener("click", async () => {
+        await mutate("/api/control/tasks", {
+          prompt: document.getElementById("queuePrompt").value,
+          approvalId: document.getElementById("queueApprovalId").value || undefined,
+        }, "Task enqueued");
+      });
+
+      document.getElementById("workerTickButton").addEventListener("click", async () => {
+        await mutate("/api/control/worker/tick", {
+          providerName: document.getElementById("runProvider").value,
+        }, "Worker tick finished");
+      });
+
+      document.getElementById("createScheduleButton").addEventListener("click", async () => {
+        const kind = document.getElementById("scheduleKind").value;
+        await mutate("/api/control/schedules", {
+          prompt: document.getElementById("schedulePrompt").value,
+          kind,
+          runAt: kind === "once" ? document.getElementById("scheduleRunAt").value : undefined,
+          everyMinutes: kind === "interval" ? Number(document.getElementById("scheduleEveryMinutes").value) : undefined,
+          approvalId: document.getElementById("scheduleApprovalId").value || undefined,
+        }, "Schedule created");
+      });
+
+      document.getElementById("schedulerTickButton").addEventListener("click", async () => {
+        await mutate("/api/control/scheduler/tick", {}, "Scheduler tick finished");
+      });
+
+      (async function bootstrap() {
+        elements.tokenInput.value = state.token;
+        try {
+          await loadConfig();
+          await loadState();
+        } catch (error) {
+          setResult("Initialization failed", {
+            error: error && error.message ? error.message : String(error),
+          });
+        }
+      })();
+    </script>
+  </body>
+</html>

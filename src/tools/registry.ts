@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { LocalBrowserManager } from "../browser/localBrowserManager.js";
+import { GitRepositoryService } from "../integrations/git/repository.js";
 import { createLogServiceFromEnv } from "../integrations/logs/registry.js";
 import type { KnowledgeStore } from "../knowledge/knowledgeStore.js";
 import type { MemoryStore } from "../memory/memoryStore.js";
@@ -65,6 +66,20 @@ const upsertKnowledgeEntrySchema = z.object({
 
 const deleteKnowledgeEntrySchema = z.object({
   path: z.string().min(1),
+});
+
+const queryGitRepositorySchema = z.object({
+  cwd: z.string().optional(),
+});
+
+const stageGitChangesSchema = z.object({
+  cwd: z.string().optional(),
+  paths: z.array(z.string().min(1)).min(1).max(50),
+});
+
+const createGitCommitSchema = z.object({
+  cwd: z.string().optional(),
+  message: z.string().min(3),
 });
 
 const listWorkspaceFilesSchema = z.object({
@@ -270,6 +285,7 @@ export function createToolRegistry(args: {
   idempotencyStore: FileIdempotencyStore;
 }): AnyToolDefinition[] {
   const logService = createLogServiceFromEnv(process.env);
+  const gitRepository = new GitRepositoryService(process.env.AGENT_WORKSPACE_ROOT);
   const workspaceTools = new WorkspaceTools(
     process.env.AGENT_WORKSPACE_ROOT,
     new ShellAuditStore(),
@@ -559,6 +575,59 @@ export function createToolRegistry(args: {
     },
   };
 
+  const queryGitRepositoryTool: ToolDefinition<
+    z.infer<typeof queryGitRepositorySchema>,
+    {
+      root: string;
+      cwd: string;
+      branch: string;
+      ahead: number;
+      behind: number;
+      isClean: boolean;
+      changedFiles: Array<{ path: string; indexStatus: string; workTreeStatus: string }>;
+    }
+  > = {
+    name: "query_git_repository",
+    description: "Inspect the current git repository status, branch state, and changed files.",
+    riskLevel: "low",
+    isReadOnly: true,
+    jsonSchema: {
+      type: "object",
+      properties: {
+        cwd: { type: "string" },
+      },
+      additionalProperties: false,
+    },
+    validate(rawArgs) {
+      return queryGitRepositorySchema.parse(rawArgs);
+    },
+    requiresApproval: () => false,
+    async execute(input) {
+      return await gitRepository.getSummary(input.cwd);
+    },
+    renderForModel(result) {
+      return [
+        `Branch: ${result.branch}`,
+        `Ahead/behind: +${result.ahead} / -${result.behind}`,
+        `Repository clean: ${result.isClean ? "yes" : "no"}`,
+        result.changedFiles.length
+          ? `Changed files:\n${result.changedFiles
+              .map((file) => `- ${file.indexStatus}${file.workTreeStatus} ${file.path}`)
+              .join("\n")}`
+          : "Changed files: none",
+      ].join("\n\n");
+    },
+    toEventData(result) {
+      return {
+        branch: result.branch,
+        ahead: result.ahead,
+        behind: result.behind,
+        isClean: result.isClean,
+        changedFiles: result.changedFiles.slice(0, 10),
+      };
+    },
+  };
+
   const upsertKnowledgeEntryTool: ToolDefinition<
     z.infer<typeof upsertKnowledgeEntrySchema>,
     { path: string; title: string; bytes: number; updatedAt: string }
@@ -625,6 +694,105 @@ export function createToolRegistry(args: {
       return result.removed
         ? `Deleted knowledge entry ${result.path}.`
         : `No knowledge entry matched ${result.path}.`;
+    },
+  };
+
+  const stageGitChangesTool: ToolDefinition<
+    z.infer<typeof stageGitChangesSchema>,
+    {
+      root: string;
+      cwd: string;
+      branch: string;
+      ahead: number;
+      behind: number;
+      isClean: boolean;
+      changedFiles: Array<{ path: string; indexStatus: string; workTreeStatus: string }>;
+    }
+  > = {
+    name: "stage_git_changes",
+    description: "Stage one or more workspace paths with git add.",
+    riskLevel: "medium",
+    isReadOnly: false,
+    jsonSchema: {
+      type: "object",
+      properties: {
+        cwd: { type: "string" },
+        paths: { type: "array", items: { type: "string" } },
+      },
+      required: ["paths"],
+      additionalProperties: false,
+    },
+    validate(rawArgs) {
+      return stageGitChangesSchema.parse(rawArgs);
+    },
+    requiresApproval() {
+      return true;
+    },
+    async execute(input) {
+      return await gitRepository.stagePaths({
+        cwd: input.cwd,
+        paths: input.paths,
+      });
+    },
+    renderForModel(result) {
+      return `Staged requested paths on branch ${result.branch}. Repository is ${result.isClean ? "clean" : "dirty"} with ${result.changedFiles.length} changed file(s).`;
+    },
+    toEventData(result) {
+      return {
+        branch: result.branch,
+        isClean: result.isClean,
+        changedFiles: result.changedFiles.slice(0, 10),
+      };
+    },
+  };
+
+  const createGitCommitTool: ToolDefinition<
+    z.infer<typeof createGitCommitSchema>,
+    {
+      root: string;
+      cwd: string;
+      branch: string;
+      ahead: number;
+      behind: number;
+      isClean: boolean;
+      changedFiles: Array<{ path: string; indexStatus: string; workTreeStatus: string }>;
+    }
+  > = {
+    name: "create_git_commit",
+    description: "Create a git commit from the currently staged changes using a provided message.",
+    riskLevel: "high",
+    isReadOnly: false,
+    jsonSchema: {
+      type: "object",
+      properties: {
+        cwd: { type: "string" },
+        message: { type: "string" },
+      },
+      required: ["message"],
+      additionalProperties: false,
+    },
+    validate(rawArgs) {
+      return createGitCommitSchema.parse(rawArgs);
+    },
+    requiresApproval() {
+      return true;
+    },
+    async execute(input) {
+      return await gitRepository.createCommit({
+        cwd: input.cwd,
+        message: input.message,
+      });
+    },
+    renderForModel(result) {
+      return `Created commit on branch ${result.branch}. Ahead by ${result.ahead}, behind by ${result.behind}. Repository is ${result.isClean ? "clean" : "dirty"}.`;
+    },
+    toEventData(result) {
+      return {
+        branch: result.branch,
+        ahead: result.ahead,
+        behind: result.behind,
+        isClean: result.isClean,
+      };
     },
   };
 
@@ -1378,10 +1546,13 @@ export function createToolRegistry(args: {
     searchLongTermMemoryTool,
     ...(logService ? [querySeqLogsTool] : []),
     listKnowledgeEntriesTool,
+    queryGitRepositoryTool,
     rememberProjectFactTool,
     forgetProjectMemoryTool,
     upsertKnowledgeEntryTool,
     deleteKnowledgeEntryTool,
+    stageGitChangesTool,
+    createGitCommitTool,
     listWorkspaceFilesTool,
     readWorkspaceFileTool,
     installWorkspaceDependenciesTool,

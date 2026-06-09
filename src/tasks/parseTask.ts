@@ -83,6 +83,9 @@ function fallbackParse(prompt: string): TaskObject {
           ]
         : intent === "write_action"
           ? [
+              "query_git_repository",
+              "stage_git_changes",
+              "create_git_commit",
               "install_workspace_dependencies",
               "run_workspace_tests",
               "write_workspace_file",

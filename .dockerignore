@@ -1,0 +1,13 @@
+node_modules
+dist
+.git
+.gitignore
+.env
+.env.local
+.agent-*
+evals/reports
+coverage
+tmp
+temp
+playwright-report
+test-results
