@@ -52,6 +52,21 @@ const forgetMemorySchema = z.object({
   memory_id: z.string().min(3),
 });
 
+const listKnowledgeEntriesSchema = z.object({
+  path_prefix: z.string().default("."),
+  query: z.string().optional(),
+  max_results: z.number().int().min(1).max(100).default(20),
+});
+
+const upsertKnowledgeEntrySchema = z.object({
+  path: z.string().min(1),
+  content: z.string().min(1),
+});
+
+const deleteKnowledgeEntrySchema = z.object({
+  path: z.string().min(1),
+});
+
 const listWorkspaceFilesSchema = z.object({
   path_prefix: z.string().default("."),
   query: z.string().optional(),
@@ -71,6 +86,36 @@ const runWorkspaceCommandSchema = z.object({
   cwd: z.string().optional(),
   timeout_ms: z.number().int().min(500).max(10000).default(4000),
   max_output_chars: z.number().int().min(200).max(12000).default(4000),
+});
+
+const installWorkspaceDependenciesSchema = z.object({
+  cwd: z.string().optional(),
+  package_manager: z.enum(["auto", "npm", "pnpm", "yarn"]).default("auto"),
+  frozen_lockfile: z.boolean().default(false),
+  timeout_ms: z.number().int().min(1000).max(600000).default(120000),
+  max_output_chars: z.number().int().min(200).max(20000).default(8000),
+});
+
+const runWorkspaceTestsSchema = z.object({
+  cwd: z.string().optional(),
+  package_manager: z.enum(["auto", "npm", "pnpm", "yarn"]).default("auto"),
+  script: z.string().min(1).default("auto"),
+  timeout_ms: z.number().int().min(1000).max(600000).default(120000),
+  max_output_chars: z.number().int().min(200).max(20000).default(8000),
+});
+
+const writeWorkspaceFileSchema = z.object({
+  path: z.string().min(1),
+  content: z.string(),
+  mode: z.enum(["overwrite", "append"]).default("overwrite"),
+});
+
+const applyWorkspacePatchSchema = z.object({
+  patch: z.string().min(1),
+  cwd: z.string().optional(),
+  timeout_ms: z.number().int().min(1000).max(120000).default(30000),
+  max_output_chars: z.number().int().min(200).max(20000).default(8000),
+  check_only: z.boolean().default(false),
 });
 
 const inspectLocalWebPageSchema = z.object({
@@ -469,6 +514,120 @@ export function createToolRegistry(args: {
     },
   };
 
+  const listKnowledgeEntriesTool: ToolDefinition<
+    z.infer<typeof listKnowledgeEntriesSchema>,
+    {
+      entries: Array<{ path: string; title: string; bytes: number; updatedAt: string }>;
+    }
+  > = {
+    name: "list_knowledge_entries",
+    description: "List knowledge-base documents that the agent can retrieve and cite.",
+    riskLevel: "low",
+    isReadOnly: true,
+    jsonSchema: {
+      type: "object",
+      properties: {
+        path_prefix: { type: "string" },
+        query: { type: "string" },
+        max_results: { type: "number" },
+      },
+      additionalProperties: false,
+    },
+    validate(rawArgs) {
+      return listKnowledgeEntriesSchema.parse(rawArgs);
+    },
+    requiresApproval: () => false,
+    async execute(input) {
+      return {
+        entries: await args.knowledgeStore.listEntries({
+          pathPrefix: input.path_prefix,
+          query: input.query,
+          limit: input.max_results,
+        }),
+      };
+    },
+    renderForModel(result) {
+      return result.entries.length
+        ? [
+            "Knowledge entries:",
+            ...result.entries.map(
+              (entry) =>
+                `- ${entry.path} (${entry.bytes} bytes, updated ${entry.updatedAt}): ${entry.title}`,
+            ),
+          ].join("\n")
+        : "No knowledge entries matched the requested filters.";
+    },
+  };
+
+  const upsertKnowledgeEntryTool: ToolDefinition<
+    z.infer<typeof upsertKnowledgeEntrySchema>,
+    { path: string; title: string; bytes: number; updatedAt: string }
+  > = {
+    name: "upsert_knowledge_entry",
+    description: "Create or replace a knowledge-base document so future runs can retrieve it.",
+    riskLevel: "medium",
+    isReadOnly: false,
+    jsonSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string" },
+        content: { type: "string" },
+      },
+      required: ["path", "content"],
+      additionalProperties: false,
+    },
+    validate(rawArgs) {
+      return upsertKnowledgeEntrySchema.parse(rawArgs);
+    },
+    requiresApproval(mode: ApprovalMode) {
+      return mode !== "auto";
+    },
+    async execute(input) {
+      return await args.knowledgeStore.upsertEntry({
+        path: input.path,
+        content: input.content,
+      });
+    },
+    renderForModel(result) {
+      return `Knowledge entry saved at ${result.path} (${result.bytes} bytes, updated ${result.updatedAt}).`;
+    },
+  };
+
+  const deleteKnowledgeEntryTool: ToolDefinition<
+    z.infer<typeof deleteKnowledgeEntrySchema>,
+    { path: string; removed: boolean }
+  > = {
+    name: "delete_knowledge_entry",
+    description: "Delete a knowledge-base document that is outdated or incorrect.",
+    riskLevel: "medium",
+    isReadOnly: false,
+    jsonSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string" },
+      },
+      required: ["path"],
+      additionalProperties: false,
+    },
+    validate(rawArgs) {
+      return deleteKnowledgeEntrySchema.parse(rawArgs);
+    },
+    requiresApproval(mode: ApprovalMode) {
+      return mode !== "auto";
+    },
+    async execute(input) {
+      return {
+        path: input.path,
+        removed: await args.knowledgeStore.deleteEntry(input.path),
+      };
+    },
+    renderForModel(result) {
+      return result.removed
+        ? `Deleted knowledge entry ${result.path}.`
+        : `No knowledge entry matched ${result.path}.`;
+    },
+  };
+
   const rememberProjectFactTool: ToolDefinition<
     z.infer<typeof rememberFactSchema>,
     { id: string; text: string; tags: string[]; reused?: boolean }
@@ -698,6 +857,246 @@ export function createToolRegistry(args: {
         result.stderr ? `stderr:\n${result.stderr}` : "stderr: <empty>",
         result.truncated ? "output_truncated: yes" : "output_truncated: no",
       ].join("\n\n");
+    },
+  };
+
+  const installWorkspaceDependenciesTool: ToolDefinition<
+    z.infer<typeof installWorkspaceDependenciesSchema>,
+    {
+      command: string;
+      args: string[];
+      cwd: string;
+      exitCode: number;
+      stdout: string;
+      stderr: string;
+      durationMs: number;
+      truncated: boolean;
+      packageManager: "npm" | "pnpm" | "yarn";
+    }
+  > = {
+    name: "install_workspace_dependencies",
+    description:
+      "Install workspace dependencies using the detected package manager. This can change lockfiles and node_modules, so it requires approval.",
+    riskLevel: "high",
+    isReadOnly: false,
+    jsonSchema: {
+      type: "object",
+      properties: {
+        cwd: { type: "string" },
+        package_manager: { type: "string", enum: ["auto", "npm", "pnpm", "yarn"] },
+        frozen_lockfile: { type: "boolean" },
+        timeout_ms: { type: "number" },
+        max_output_chars: { type: "number" },
+      },
+      additionalProperties: false,
+    },
+    validate(rawArgs) {
+      return installWorkspaceDependenciesSchema.parse(rawArgs);
+    },
+    requiresApproval() {
+      return true;
+    },
+    async execute(input) {
+      return await workspaceTools.installDependencies({
+        cwd: input.cwd,
+        packageManager: input.package_manager,
+        frozenLockfile: input.frozen_lockfile,
+        timeoutMs: input.timeout_ms,
+        maxOutputChars: input.max_output_chars,
+      });
+    },
+    renderForModel(result) {
+      return [
+        `Package manager: ${result.packageManager}`,
+        `Command: ${result.command} ${result.args.join(" ")}`.trim(),
+        `cwd: ${result.cwd}`,
+        `exit_code: ${result.exitCode}`,
+        result.stdout ? `stdout:\n${result.stdout}` : "stdout: <empty>",
+        result.stderr ? `stderr:\n${result.stderr}` : "stderr: <empty>",
+      ].join("\n\n");
+    },
+    toEventData(result) {
+      return {
+        packageManager: result.packageManager,
+        exitCode: result.exitCode,
+        cwd: result.cwd,
+      };
+    },
+  };
+
+  const runWorkspaceTestsTool: ToolDefinition<
+    z.infer<typeof runWorkspaceTestsSchema>,
+    {
+      command: string;
+      args: string[];
+      cwd: string;
+      exitCode: number;
+      stdout: string;
+      stderr: string;
+      durationMs: number;
+      truncated: boolean;
+      packageManager: "npm" | "pnpm" | "yarn";
+      script: string;
+    }
+  > = {
+    name: "run_workspace_tests",
+    description:
+      "Run a workspace test-like script such as test, check, lint, or evals. This executes code and requires approval.",
+    riskLevel: "high",
+    isReadOnly: false,
+    jsonSchema: {
+      type: "object",
+      properties: {
+        cwd: { type: "string" },
+        package_manager: { type: "string", enum: ["auto", "npm", "pnpm", "yarn"] },
+        script: { type: "string" },
+        timeout_ms: { type: "number" },
+        max_output_chars: { type: "number" },
+      },
+      additionalProperties: false,
+    },
+    validate(rawArgs) {
+      return runWorkspaceTestsSchema.parse(rawArgs);
+    },
+    requiresApproval() {
+      return true;
+    },
+    async execute(input) {
+      return await workspaceTools.runTests({
+        cwd: input.cwd,
+        packageManager: input.package_manager,
+        script: input.script,
+        timeoutMs: input.timeout_ms,
+        maxOutputChars: input.max_output_chars,
+      });
+    },
+    renderForModel(result) {
+      return [
+        `Package manager: ${result.packageManager}`,
+        `Script: ${result.script}`,
+        `Command: ${result.command} ${result.args.join(" ")}`.trim(),
+        `cwd: ${result.cwd}`,
+        `exit_code: ${result.exitCode}`,
+        result.stdout ? `stdout:\n${result.stdout}` : "stdout: <empty>",
+        result.stderr ? `stderr:\n${result.stderr}` : "stderr: <empty>",
+      ].join("\n\n");
+    },
+    toEventData(result) {
+      return {
+        packageManager: result.packageManager,
+        script: result.script,
+        exitCode: result.exitCode,
+        cwd: result.cwd,
+      };
+    },
+  };
+
+  const writeWorkspaceFileTool: ToolDefinition<
+    z.infer<typeof writeWorkspaceFileSchema>,
+    { path: string; mode: "overwrite" | "append"; bytesWritten: number; created: boolean }
+  > = {
+    name: "write_workspace_file",
+    description:
+      "Write or append text content to a workspace file. This is a direct code/content edit and requires approval.",
+    riskLevel: "high",
+    isReadOnly: false,
+    jsonSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string" },
+        content: { type: "string" },
+        mode: { type: "string", enum: ["overwrite", "append"] },
+      },
+      required: ["path", "content"],
+      additionalProperties: false,
+    },
+    validate(rawArgs) {
+      return writeWorkspaceFileSchema.parse(rawArgs);
+    },
+    requiresApproval() {
+      return true;
+    },
+    async execute(input) {
+      return await workspaceTools.writeTextFile({
+        path: input.path,
+        content: input.content,
+        mode: input.mode,
+      });
+    },
+    renderForModel(result) {
+      return `Wrote ${result.bytesWritten} bytes to ${result.path} using ${result.mode} mode (${result.created ? "created" : "updated"}).`;
+    },
+    toEventData(result) {
+      return {
+        path: result.path,
+        mode: result.mode,
+        bytesWritten: result.bytesWritten,
+        created: result.created,
+      };
+    },
+  };
+
+  const applyWorkspacePatchTool: ToolDefinition<
+    z.infer<typeof applyWorkspacePatchSchema>,
+    {
+      cwd: string;
+      exitCode: number;
+      stdout: string;
+      stderr: string;
+      durationMs: number;
+      applied: boolean;
+      validatedPaths: string[];
+    }
+  > = {
+    name: "apply_workspace_patch",
+    description:
+      "Apply a unified diff patch inside the workspace after validating that all touched paths stay within the repo. This requires approval.",
+    riskLevel: "high",
+    isReadOnly: false,
+    jsonSchema: {
+      type: "object",
+      properties: {
+        patch: { type: "string" },
+        cwd: { type: "string" },
+        timeout_ms: { type: "number" },
+        max_output_chars: { type: "number" },
+        check_only: { type: "boolean" },
+      },
+      required: ["patch"],
+      additionalProperties: false,
+    },
+    validate(rawArgs) {
+      return applyWorkspacePatchSchema.parse(rawArgs);
+    },
+    requiresApproval() {
+      return true;
+    },
+    async execute(input) {
+      return await workspaceTools.applyPatch({
+        patch: input.patch,
+        cwd: input.cwd,
+        timeoutMs: input.timeout_ms,
+        maxOutputChars: input.max_output_chars,
+        checkOnly: input.check_only,
+      });
+    },
+    renderForModel(result) {
+      return [
+        `cwd: ${result.cwd}`,
+        `exit_code: ${result.exitCode}`,
+        `applied: ${result.applied ? "yes" : "no"}`,
+        `validated_paths:\n${result.validatedPaths.map((path) => `- ${path}`).join("\n")}`,
+        result.stdout ? `stdout:\n${result.stdout}` : "stdout: <empty>",
+        result.stderr ? `stderr:\n${result.stderr}` : "stderr: <empty>",
+      ].join("\n\n");
+    },
+    toEventData(result) {
+      return {
+        cwd: result.cwd,
+        exitCode: result.exitCode,
+        applied: result.applied,
+        validatedPaths: result.validatedPaths,
+      };
     },
   };
 
@@ -978,10 +1377,17 @@ export function createToolRegistry(args: {
     searchKnowledgeBaseTool,
     searchLongTermMemoryTool,
     ...(logService ? [querySeqLogsTool] : []),
+    listKnowledgeEntriesTool,
     rememberProjectFactTool,
     forgetProjectMemoryTool,
+    upsertKnowledgeEntryTool,
+    deleteKnowledgeEntryTool,
     listWorkspaceFilesTool,
     readWorkspaceFileTool,
+    installWorkspaceDependenciesTool,
+    runWorkspaceTestsTool,
+    writeWorkspaceFileTool,
+    applyWorkspacePatchTool,
     inspectLocalWebPageTool,
     browserOpenLocalPageTool,
     browserSnapshotLocalPageTool,

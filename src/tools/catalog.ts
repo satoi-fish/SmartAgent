@@ -3,6 +3,7 @@ export const READ_ONLY_TOOL_NAMES = [
   "search_knowledge_base",
   "search_long_term_memory",
   "query_seq_logs",
+  "list_knowledge_entries",
   "list_workspace_files",
   "read_workspace_file",
   "inspect_local_web_page",
@@ -14,10 +15,16 @@ export const READ_ONLY_TOOL_NAMES = [
 export const APPROVABLE_TOOL_NAMES = [
   "remember_project_fact",
   "forget_project_memory",
+  "upsert_knowledge_entry",
+  "delete_knowledge_entry",
   "browser_click_local_element",
   "browser_type_local_element",
   "browser_screenshot_local_page",
   "run_workspace_command",
+  "install_workspace_dependencies",
+  "run_workspace_tests",
+  "write_workspace_file",
+  "apply_workspace_patch",
   "draft_action_item",
 ] as const;
 

@@ -73,7 +73,21 @@ function fallbackParse(prompt: string): TaskObject {
         : "concise",
     preferredToolNames:
       intent === "memory_management"
-        ? ["search_long_term_memory", "remember_project_fact", "forget_project_memory"]
+        ? [
+            "search_long_term_memory",
+            "remember_project_fact",
+            "forget_project_memory",
+            "list_knowledge_entries",
+            "upsert_knowledge_entry",
+            "delete_knowledge_entry",
+          ]
+        : intent === "write_action"
+          ? [
+              "install_workspace_dependencies",
+              "run_workspace_tests",
+              "write_workspace_file",
+              "apply_workspace_patch",
+            ]
         : intent === "deployment" || intent === "incident"
           ? ["search_knowledge_base", "search_project_docs"]
           : [],

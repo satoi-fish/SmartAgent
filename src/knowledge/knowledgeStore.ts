@@ -1,19 +1,35 @@
-import { readdir, readFile } from "node:fs/promises";
-import { relative, resolve } from "node:path";
+import type { Dirent } from "node:fs";
+import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { basename, dirname, extname, relative, resolve, sep } from "node:path";
 
 import type { FileCacheStore } from "../cache/fileCacheStore.js";
+import {
+  cosineSimilarity,
+  createHashedEmbedding,
+  lexicalOverlapScore,
+  normalizeSemanticText,
+} from "../runtime/hashEmbedding.js";
 import type { KnowledgeChunk } from "../types/index.js";
+
+const ENABLED_KNOWLEDGE_EXTENSIONS = new Set([".md", ".txt"]);
+
+export interface KnowledgeEntry {
+  path: string;
+  title: string;
+  bytes: number;
+  updatedAt: string;
+}
 
 export interface KnowledgeStore {
   search(query: string, limit: number): Promise<KnowledgeChunk[]>;
+  listEntries(args?: { pathPrefix?: string; query?: string; limit?: number }): Promise<KnowledgeEntry[]>;
+  upsertEntry(args: { path: string; content: string }): Promise<KnowledgeEntry>;
+  deleteEntry(path: string): Promise<boolean>;
 }
 
 interface IndexedChunk extends KnowledgeChunk {
   normalized: string;
-}
-
-function normalize(text: string): string {
-  return text.toLowerCase().replace(/\s+/g, " ").trim();
+  embedding: number[];
 }
 
 function splitIntoChunks(content: string, maxChars = 700): string[] {
@@ -47,53 +63,26 @@ function splitIntoChunks(content: string, maxChars = 700): string[] {
   return chunks;
 }
 
-function scoreChunk(query: string, chunk: IndexedChunk): number {
-  const normalizedQuery = normalize(query);
-  const terms = Array.from(
-    new Set(normalizedQuery.split(/[\s,.;:!?()[\]{}"']+/).filter((term) => term.length >= 2)),
-  );
-
-  let score = 0;
-
-  if (normalizedQuery && chunk.normalized.includes(normalizedQuery)) {
-    score += 12;
+function semanticScore(query: string, chunk: IndexedChunk): number {
+  const normalizedQuery = normalizeSemanticText(query);
+  if (!normalizedQuery) {
+    return 0;
   }
 
-  for (const term of terms) {
-    if (chunk.normalized.includes(term)) {
-      score += 3;
-    }
-    if (normalize(chunk.title).includes(term)) {
-      score += 4;
-    }
-    if (normalize(chunk.sourcePath).includes(term)) {
-      score += 4;
-    }
-  }
-
-  return score;
-}
-
-function rerankChunk(query: string, chunk: IndexedChunk): number {
-  const normalizedQuery = normalize(query);
-  const terms = Array.from(
-    new Set(normalizedQuery.split(/[\s,.;:!?()[\]{}"']+/).filter((term) => term.length >= 2)),
+  const queryEmbedding = createHashedEmbedding(normalizedQuery);
+  const lexicalScore = lexicalOverlapScore(
+    normalizedQuery,
+    `${chunk.title} ${chunk.sourcePath} ${chunk.content}`,
   );
+  const exactMatchBonus = chunk.normalized.includes(normalizedQuery) ? 0.18 : 0;
+  const semanticSimilarity = Math.max(0, cosineSimilarity(queryEmbedding, chunk.embedding));
 
-  const distinctHits = terms.filter((term) => chunk.normalized.includes(term)).length;
-  const exactMatchBonus = normalizedQuery && chunk.normalized.includes(normalizedQuery) ? 8 : 0;
-  const titleBonus = terms.filter((term) => normalize(chunk.title).includes(term)).length * 2;
-  const firstHitIndex = terms
-    .map((term) => chunk.normalized.indexOf(term))
-    .filter((index) => index >= 0)
-    .sort((left, right) => left - right)[0];
-  const positionBonus = typeof firstHitIndex === "number" ? Math.max(0, 6 - Math.floor(firstHitIndex / 80)) : 0;
-
-  return chunk.score + distinctHits * 3 + exactMatchBonus + titleBonus + positionBonus;
+  return semanticSimilarity * 0.72 + lexicalScore * 0.28 + exactMatchBonus;
 }
 
 export class FileKnowledgeStore implements KnowledgeStore {
   private cache?: IndexedChunk[];
+  private cacheVersion = 0;
 
   constructor(
     private readonly rootDir = resolve(process.cwd(), "knowledge"),
@@ -101,7 +90,8 @@ export class FileKnowledgeStore implements KnowledgeStore {
   ) {}
 
   async search(query: string, limit: number): Promise<KnowledgeChunk[]> {
-    const cacheKey = `knowledge:${query.toLowerCase().trim()}:${limit}`;
+    const normalizedQuery = normalizeSemanticText(query);
+    const cacheKey = `knowledge:${this.cacheVersion}:${normalizedQuery}:${limit}`;
     if (this.queryCache) {
       const cached = await this.queryCache.get<KnowledgeChunk[]>(cacheKey);
       if (cached) {
@@ -110,22 +100,15 @@ export class FileKnowledgeStore implements KnowledgeStore {
     }
 
     const index = await this.loadIndex();
-
     const results = index
       .map((chunk) => ({
         ...chunk,
-        score: scoreChunk(query, chunk),
+        score: semanticScore(normalizedQuery, chunk),
       }))
-      .filter((chunk) => chunk.score > 0)
-      .sort((left, right) => right.score - left.score)
-      .slice(0, Math.max(limit * 3, limit))
-      .map((chunk) => ({
-        ...chunk,
-        score: rerankChunk(query, chunk),
-      }))
+      .filter((chunk) => chunk.score > 0.12)
       .sort((left, right) => right.score - left.score)
       .slice(0, limit)
-      .map(({ normalized, ...chunk }) => chunk);
+      .map(({ normalized, embedding, ...chunk }) => chunk);
 
     if (this.queryCache) {
       await this.queryCache.set(cacheKey, results, 5 * 60 * 1000);
@@ -134,41 +117,141 @@ export class FileKnowledgeStore implements KnowledgeStore {
     return results;
   }
 
-  private async loadIndex(): Promise<IndexedChunk[]> {
-    if (this.cache) {
-      return this.cache;
+  async listEntries(args: {
+    pathPrefix?: string;
+    query?: string;
+    limit?: number;
+  } = {}): Promise<KnowledgeEntry[]> {
+    const startDir = this.resolveWithinRoot(args.pathPrefix ?? ".");
+    const query = normalizeSemanticText(args.query ?? "");
+    const files = await this.walkKnowledgeFiles(startDir);
+    const entries: KnowledgeEntry[] = [];
+
+    for (const filePath of files) {
+      const relativePath = relative(this.rootDir, filePath);
+      if (query && !normalizeSemanticText(relativePath).includes(query)) {
+        continue;
+      }
+
+      const metadata = await stat(filePath);
+      entries.push({
+        path: relativePath,
+        title: basename(relativePath, extname(relativePath)),
+        bytes: metadata.size,
+        updatedAt: metadata.mtime.toISOString(),
+      });
+
+      if (entries.length >= (args.limit ?? 50)) {
+        break;
+      }
     }
 
-    let fileNames: string[];
+    return entries;
+  }
+
+  async upsertEntry(args: { path: string; content: string }): Promise<KnowledgeEntry> {
+    const normalizedPath = extname(args.path) ? args.path : `${args.path}.md`;
+    const fullPath = this.resolveWithinRoot(normalizedPath);
+    const extension = extname(fullPath).toLowerCase();
+    if (!ENABLED_KNOWLEDGE_EXTENSIONS.has(extension)) {
+      throw new Error(`Knowledge entries must use one of: ${[...ENABLED_KNOWLEDGE_EXTENSIONS].join(", ")}.`);
+    }
+
+    await mkdir(dirname(fullPath), { recursive: true });
+    await writeFile(fullPath, args.content.endsWith("\n") ? args.content : `${args.content}\n`, "utf8");
+    const metadata = await stat(fullPath);
+    this.invalidateIndex();
+
+    return {
+      path: relative(this.rootDir, fullPath),
+      title: basename(fullPath, extname(fullPath)),
+      bytes: metadata.size,
+      updatedAt: metadata.mtime.toISOString(),
+    };
+  }
+
+  async deleteEntry(path: string): Promise<boolean> {
+    const fullPath = this.resolveWithinRoot(path);
+
     try {
-      fileNames = await readdir(this.rootDir);
+      await rm(fullPath);
+      this.invalidateIndex();
+      return true;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        this.cache = [];
-        return this.cache;
+        return false;
+      }
+
+      throw error;
+    }
+  }
+
+  private invalidateIndex(): void {
+    this.cache = undefined;
+    this.cacheVersion += 1;
+  }
+
+  private resolveWithinRoot(targetPath: string): string {
+    const absolute = resolve(this.rootDir, targetPath);
+    const rel = relative(this.rootDir, absolute);
+    if (rel.startsWith("..") || rel.includes(`${sep}..${sep}`) || rel === "..") {
+      throw new Error(`Knowledge path "${targetPath}" escapes the knowledge root.`);
+    }
+
+    return absolute;
+  }
+
+  private async walkKnowledgeFiles(currentDir: string): Promise<string[]> {
+    let entries: Dirent[];
+    try {
+      entries = await readdir(currentDir, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return [];
       }
 
       throw error;
     }
 
-    const chunks: IndexedChunk[] = [];
+    const files: string[] = [];
+    for (const entry of entries) {
+      const fullPath = resolve(currentDir, entry.name);
 
-    for (const fileName of fileNames) {
-      if (!/\.(md|txt)$/i.test(fileName)) {
+      if (entry.isDirectory()) {
+        files.push(...(await this.walkKnowledgeFiles(fullPath)));
         continue;
       }
 
-      const fullPath = resolve(this.rootDir, fileName);
+      if (ENABLED_KNOWLEDGE_EXTENSIONS.has(extname(entry.name).toLowerCase())) {
+        files.push(fullPath);
+      }
+    }
+
+    return files.sort((left, right) => left.localeCompare(right));
+  }
+
+  private async loadIndex(): Promise<IndexedChunk[]> {
+    if (this.cache) {
+      return this.cache;
+    }
+
+    const files = await this.walkKnowledgeFiles(this.rootDir);
+    const chunks: IndexedChunk[] = [];
+
+    for (const fullPath of files) {
       const raw = await readFile(fullPath, "utf8");
-      const title = fileName.replace(/\.[^.]+$/, "");
+      const relativePath = relative(process.cwd(), fullPath);
+      const title = basename(fullPath, extname(fullPath));
 
       for (const [index, chunk] of splitIntoChunks(raw).entries()) {
+        const normalized = normalizeSemanticText(chunk);
         chunks.push({
           id: `${title}#${index + 1}`,
           title,
           content: chunk,
-          sourcePath: relative(process.cwd(), fullPath),
-          normalized: normalize(chunk),
+          sourcePath: relativePath,
+          normalized,
+          embedding: createHashedEmbedding(`${title}\n${relativePath}\n${normalized}`),
           score: 0,
         });
       }
