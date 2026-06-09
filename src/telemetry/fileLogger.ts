@@ -11,7 +11,11 @@ interface LoggedEvent {
 
 export interface RunSummary {
   prompt: string;
+  summary: string;
   answer: string;
+  risks: string[];
+  nextSteps: string[];
+  citations: string[];
   toolCalls: string[];
   totalTokens: number;
   needsHumanReview: boolean;

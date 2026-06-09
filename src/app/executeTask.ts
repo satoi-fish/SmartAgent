@@ -280,7 +280,11 @@ export async function executeTask(args: {
   const logPath = persistRunLog
     ? await logger.flush({
         prompt: args.prompt,
+        summary: result.structuredAnswer.summary,
         answer: result.renderedAnswer,
+        risks: result.structuredAnswer.risks,
+        nextSteps: result.structuredAnswer.next_steps,
+        citations: result.structuredAnswer.citations,
         toolCalls: result.toolCalls,
         totalTokens: result.usage.totalTokens,
         needsHumanReview: result.structuredAnswer.needs_human_review,

@@ -138,6 +138,12 @@ export type AgentEvent =
       detail?: string;
     }
   | {
+      type: "tool_result";
+      toolName: string;
+      summary: string;
+      data?: Record<string, unknown>;
+    }
+  | {
       type: "model_output";
       text: string;
     }
@@ -164,6 +170,7 @@ export interface ToolDefinition<TArgs = unknown, TResult = unknown> {
   requiresApproval: (mode: ApprovalMode) => boolean;
   execute: (args: TArgs) => Promise<TResult>;
   renderForModel: (result: TResult) => string;
+  toEventData?: (result: TResult) => Record<string, unknown> | undefined;
 }
 
 export type AnyToolDefinition = ToolDefinition<any, any>;
