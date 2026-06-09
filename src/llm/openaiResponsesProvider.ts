@@ -70,7 +70,7 @@ function asOpenAITools(tools: ProviderToolDefinition[] | undefined): FunctionToo
     name: tool.name,
     description: tool.description,
     parameters: tool.parameters,
-    strict: true,
+    strict: false,
   }));
 }
 

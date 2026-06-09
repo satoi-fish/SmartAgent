@@ -446,6 +446,27 @@ export function createToolRegistry(args: {
         `Entries:\n${entryLines}`,
       ].join("\n\n");
     },
+    toEventData(result) {
+      return {
+        provider: result.provider,
+        filterExpression: result.filterExpression,
+        total: result.total,
+        summary: result.summary.slice(0, 5).map((item) => ({
+          fingerprint: item.fingerprint,
+          count: item.count,
+        })),
+        entries: result.entries.slice(0, 5).map((entry) => ({
+          timestamp: entry.timestamp,
+          level: entry.level,
+          service: entry.service,
+          environment: entry.environment,
+          message: entry.message,
+          traceId: entry.traceId,
+          requestId: entry.requestId,
+          deploySha: entry.deploySha,
+        })),
+      };
+    },
   };
 
   const rememberProjectFactTool: ToolDefinition<

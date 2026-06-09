@@ -49,6 +49,18 @@ function emitTextDeltas(args: {
   }
 }
 
+function shouldUseProviderStreaming(): boolean {
+  if (
+    process.env.AGENT_DISABLE_PROVIDER_STREAMING?.trim().toLowerCase() === "true" ||
+    process.env.AGENT_DISABLE_PROVIDER_STREAMING === "1"
+  ) {
+    return false;
+  }
+
+  // Proxy-backed local environments are more reliable with buffered responses than SDK streaming.
+  return !(process.env.HTTP_PROXY || process.env.HTTPS_PROXY || process.env.ALL_PROXY);
+}
+
 function buildTerminalResult(args: {
   rawAnswer: string;
   renderedAnswer?: string;
@@ -212,7 +224,10 @@ export async function runAgent(args: {
     }
 
     const useProviderStreaming =
-      Boolean(args.streamOutput) && provider.supportsStreaming && typeof provider.streamResponse === "function";
+      Boolean(args.streamOutput) &&
+      provider.supportsStreaming &&
+      typeof provider.streamResponse === "function" &&
+      shouldUseProviderStreaming();
     const response = await withTimeout({
       label: "Model response",
       timeoutMs: Math.max(1000, Math.min(remainingRunBudgetMs, runtimeContext.budget.maxRunDurationMs)),
@@ -451,6 +466,15 @@ export async function runAgent(args: {
           timeoutMs: Math.max(500, runtimeContext.budget.maxToolExecutionMs),
           task: tool.execute(tool.validate(JSON.parse(call.arguments))),
         });
+        const renderedSummary = tool.renderForModel(result);
+
+        logger.emit({
+          type: "tool_result",
+          toolName: tool.name,
+          summary: renderedSummary,
+          data: tool.toEventData?.(result),
+        });
+
         logger.emit({
           type: "tool_status",
           toolName: tool.name,
@@ -461,7 +485,7 @@ export async function runAgent(args: {
           type: "function_call_output",
           call_id: call.callId,
           output: JSON.stringify({
-            summary: tool.renderForModel(result),
+            summary: renderedSummary,
           }),
         });
       } catch (error) {

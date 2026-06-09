@@ -3,7 +3,13 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
-import { listWorkbenchRuns, loadDefaultWorkbenchRun, loadWorkbenchMeta, loadWorkbenchRun } from "./runStore.js";
+import {
+  listWorkbenchRuns,
+  loadDefaultWorkbenchRun,
+  loadWorkbenchDebugPayload,
+  loadWorkbenchMeta,
+  loadWorkbenchRun,
+} from "./runStore.js";
 
 function parseArgs(argv: string[]): { host: string; port: number } {
   const args = { host: "127.0.0.1", port: 4173 };
@@ -70,7 +76,24 @@ const server = createServer(async (request, response) => {
   }
 
   if (url.pathname.startsWith("/api/workbench/runs/")) {
-    const id = decodeURIComponent(url.pathname.replace("/api/workbench/runs/", ""));
+    const suffix = decodeURIComponent(url.pathname.replace("/api/workbench/runs/", ""));
+
+    if (suffix.endsWith("/events")) {
+      const id = suffix.slice(0, -"/events".length);
+      const payload = await loadWorkbenchDebugPayload(id);
+
+      if (!payload) {
+        response.writeHead(404, { "content-type": "application/json; charset=utf-8" });
+        response.end(JSON.stringify({ error: `Run "${id}" was not found.` }, null, 2));
+        return;
+      }
+
+      response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+      response.end(JSON.stringify(payload, null, 2));
+      return;
+    }
+
+    const id = suffix;
     const run = await loadWorkbenchRun(id);
 
     if (!run) {

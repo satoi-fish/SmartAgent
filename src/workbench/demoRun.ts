@@ -167,10 +167,32 @@ export function buildDemoPipelineRun(): WorkbenchRunView {
       provider: "seq",
       status: "warning",
       summary: "error 已消失，但本次部署后仍出现少量重复 warning。",
+      filterExpression: "@Properties['Service'] = 'checkout-web' and @Level in ['Warning', 'Error']",
+      total: 3,
       highlights: [
+        "3x missing optional customer note",
         "OrderDetailView 的 null reference error 不再出现。",
-        "发现 3 条新的 warn: missing optional customer note。",
         "warning 未阻塞功能，但建议观察 1 个版本周期。",
+      ],
+      entries: [
+        {
+          timestamp: "2026-06-02T09:18:30.000Z",
+          level: "warn",
+          service: "checkout-web",
+          environment: "staging",
+          message: "Missing optional customer note on order detail hydration path.",
+          traceId: "trace-demo-001",
+          deploySha: "8fd21a4",
+        },
+        {
+          timestamp: "2026-06-02T09:18:51.000Z",
+          level: "warn",
+          service: "checkout-web",
+          environment: "staging",
+          message: "Missing optional customer note on order detail hydration path.",
+          traceId: "trace-demo-002",
+          deploySha: "8fd21a4",
+        },
       ],
     },
     browserTest: {

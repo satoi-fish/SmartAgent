@@ -11,6 +11,22 @@ export interface PersistedRunEvent {
   event: AgentEvent;
 }
 
+export interface WorkbenchDebugEvent {
+  id: string;
+  timestamp: string;
+  type: AgentEvent["type"];
+  summary: string;
+  raw: AgentEvent;
+}
+
+export interface WorkbenchDebugPayload {
+  runId: string;
+  source: "real" | "demo";
+  totalEvents: number;
+  terminalEventType?: AgentEvent["type"];
+  events: WorkbenchDebugEvent[];
+}
+
 export interface PersistedRunLog {
   runId: string;
   startedAt: string;
@@ -107,6 +123,18 @@ export interface WorkbenchLogInsightView {
   status: string;
   summary: string;
   highlights: string[];
+  filterExpression?: string;
+  total?: number;
+  entries?: Array<{
+    timestamp: string;
+    level: string;
+    service: string;
+    environment?: string;
+    message: string;
+    traceId?: string;
+    requestId?: string;
+    deploySha?: string;
+  }>;
 }
 
 export interface WorkbenchBrowserTestView {

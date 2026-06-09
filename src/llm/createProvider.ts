@@ -1,10 +1,28 @@
 import OpenAI, { AzureOpenAI } from "openai";
+import type { Fetch as OpenAIFetch } from "openai/core.js";
 
 import type { ProviderName } from "../types/index.js";
 import { AnthropicMessagesProvider } from "./anthropicMessagesProvider.js";
 import { OpenAICompatibleChatProvider } from "./openAICompatibleChatProvider.js";
 import { OpenAIResponsesProvider } from "./openaiResponsesProvider.js";
 import type { ModelProvider, ProviderFactoryArgs } from "./provider.js";
+
+function getNativeFetchOverride(): OpenAIFetch | undefined {
+  if (typeof globalThis.fetch !== "function") {
+    return undefined;
+  }
+
+  return globalThis.fetch.bind(globalThis) as unknown as OpenAIFetch;
+}
+
+function createOpenAIClient(args: { apiKey: string; baseURL?: string }): OpenAI {
+  return new OpenAI({
+    apiKey: args.apiKey,
+    baseURL: args.baseURL,
+    // Reuse Node's native fetch so local proxy env vars are honored consistently.
+    fetch: getNativeFetchOverride(),
+  });
+}
 
 export function resolveProviderApiKey(args: {
   providerName: ProviderName;
@@ -38,7 +56,7 @@ export function createProvider(args: ProviderFactoryArgs): ModelProvider {
 
   switch (args.providerName) {
     case "openai":
-      return new OpenAIResponsesProvider(new OpenAI({ apiKey }));
+      return new OpenAIResponsesProvider(createOpenAIClient({ apiKey }));
     case "anthropic":
       return new AnthropicMessagesProvider(
         apiKey,
@@ -47,7 +65,7 @@ export function createProvider(args: ProviderFactoryArgs): ModelProvider {
     case "google":
       return new OpenAICompatibleChatProvider(
         "google",
-        new OpenAI({
+        createOpenAIClient({
           apiKey,
           baseURL:
             args.env.GOOGLE_BASE_URL ??
@@ -57,7 +75,7 @@ export function createProvider(args: ProviderFactoryArgs): ModelProvider {
     case "deepseek":
       return new OpenAICompatibleChatProvider(
         "deepseek",
-        new OpenAI({
+        createOpenAIClient({
           apiKey,
           baseURL: args.env.DEEPSEEK_BASE_URL ?? "https://api.deepseek.com/v1",
         }),
@@ -77,6 +95,7 @@ export function createProvider(args: ProviderFactoryArgs): ModelProvider {
           apiKey,
           endpoint,
           apiVersion,
+          fetch: getNativeFetchOverride(),
         }),
       );
     }

@@ -154,6 +154,26 @@
         opacity: 0.94;
       }
 
+      .button-row {
+        display: flex;
+        gap: 10px;
+      }
+
+      .button-row button {
+        width: auto;
+        flex: 1;
+      }
+
+      .ghost-button {
+        background: var(--panel-strong);
+        color: var(--text);
+      }
+
+      .range-input {
+        width: 100%;
+        accent-color: var(--accent);
+      }
+
       .toggle {
         display: flex;
         align-items: center;
@@ -212,8 +232,9 @@
 
       .workspace {
         display: grid;
-        grid-template-columns: 0.8fr 1.2fr 0.9fr;
+        grid-template-columns: 0.92fr 1.16fr 0.92fr;
         gap: 20px;
+        align-items: start;
       }
 
       .stack {
@@ -250,6 +271,8 @@
       .run-item {
         cursor: pointer;
         transition: border-color 160ms ease, transform 160ms ease, background 160ms ease;
+        color: var(--text);
+        text-align: left;
       }
 
       .run-item:hover {
@@ -320,6 +343,75 @@
         margin-top: 20px;
       }
 
+      .debug-grid {
+        display: grid;
+        grid-template-columns: 1.05fr 0.95fr;
+        gap: 20px;
+        margin-top: 20px;
+      }
+
+      .filter-bar {
+        display: grid;
+        grid-template-columns: 1fr 180px;
+        gap: 12px;
+        margin-bottom: 14px;
+      }
+
+      .filter-bar input,
+      .filter-bar select {
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 11px 12px;
+        background: var(--panel-strong);
+        color: var(--text);
+        font: inherit;
+      }
+
+      .event-item {
+        cursor: pointer;
+        transition: border-color 160ms ease, transform 160ms ease, background 160ms ease;
+        color: var(--text);
+        text-align: left;
+      }
+
+      .event-item:hover {
+        transform: translateY(-1px);
+        border-color: rgba(13, 118, 110, 0.28);
+      }
+
+      .event-item.active {
+        border-color: rgba(13, 118, 110, 0.45);
+        background: rgba(215, 242, 238, 0.4);
+      }
+
+      .run-item strong,
+      .event-item strong {
+        color: var(--text);
+      }
+
+      .run-item p,
+      .event-item p,
+      .run-item .meta-line,
+      .event-item .meta-line {
+        color: var(--muted);
+      }
+
+      pre.code-block {
+        margin: 0;
+        padding: 16px;
+        overflow: auto;
+        border-radius: 18px;
+        border: 1px solid var(--line);
+        background: #f8f4ed;
+        color: #23403b;
+        font-size: 0.88rem;
+        line-height: 1.55;
+        font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
       ul {
         margin: 12px 0 0;
         padding-left: 18px;
@@ -344,6 +436,7 @@
         .metrics,
         .stages,
         .report-grid,
+        .debug-grid,
         .hero-metrics,
         .insight-grid {
           grid-template-columns: 1fr;
@@ -533,6 +626,51 @@
           </div>
         </article>
       </section>
+
+      <section class="debug-grid">
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <div class="label">Debug Console</div>
+              <h3>Raw Event Stream</h3>
+            </div>
+            <span class="status-pill pending" id="eventCountPill">0 events</span>
+          </div>
+          <div class="filter-bar">
+            <input id="eventSearchInput" type="text" placeholder="Filter by summary, type, or payload…" />
+            <select id="eventTypeFilter">
+              <option value="all">All event types</option>
+            </select>
+          </div>
+          <div class="list" id="debugEvents"></div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <div class="label">Selected Event</div>
+              <h3>Raw Payload</h3>
+            </div>
+          </div>
+          <div class="list-item" style="margin-bottom: 14px;">
+            <strong>Run Replay</strong>
+            <p id="replaySummary">Use replay controls to step through the current event stream.</p>
+            <div class="button-row" style="margin-top: 14px;">
+              <button class="ghost-button" id="replayPrevButton" type="button">Previous</button>
+              <button id="replayPlayButton" type="button">Play</button>
+              <button class="ghost-button" id="replayNextButton" type="button">Next</button>
+            </div>
+            <input class="range-input" id="replaySlider" type="range" min="0" max="0" value="0" style="margin-top: 14px;" />
+            <div class="meta-line" id="replayFrameMeta" style="margin-top: 10px;">Frame 0 / 0</div>
+          </div>
+          <div class="list-item" style="margin-bottom: 14px;">
+            <strong id="selectedEventTitle">No event selected</strong>
+            <p id="selectedEventSummary">Pick an event from the left to inspect its raw payload.</p>
+            <div class="meta-line" id="selectedEventMeta">-</div>
+          </div>
+          <pre class="code-block" id="selectedEventPayload">No event selected yet.</pre>
+        </article>
+      </section>
     </div>
 
     <script>
@@ -541,12 +679,23 @@
         meta: null,
         currentRunId: null,
         autoRefreshTimer: null,
+        debugPayload: null,
+        selectedDebugEventId: null,
+        replayIndex: 0,
+        replayTimer: null,
       };
 
       const statusText = document.getElementById("statusText");
       const runSelect = document.getElementById("runSelect");
       const refreshButton = document.getElementById("refreshButton");
       const autoRefreshToggle = document.getElementById("autoRefreshToggle");
+      const eventSearchInput = document.getElementById("eventSearchInput");
+      const eventTypeFilter = document.getElementById("eventTypeFilter");
+      const replayPrevButton = document.getElementById("replayPrevButton");
+      const replayPlayButton = document.getElementById("replayPlayButton");
+      const replayNextButton = document.getElementById("replayNextButton");
+      const replaySlider = document.getElementById("replaySlider");
+      let workspaceLayoutFrame = null;
 
       function escapeHtml(value) {
         return String(value)
@@ -603,6 +752,10 @@
         return await fetchJson("/api/workbench/runs/" + encodeURIComponent(id));
       }
 
+      async function loadRunEvents(id) {
+        return await fetchJson("/api/workbench/runs/" + encodeURIComponent(id) + "/events");
+      }
+
       async function loadDefaultRun() {
         return await fetchJson("/api/workbench/default");
       }
@@ -642,6 +795,110 @@
               "</strong></div>",
           )
           .join("");
+      }
+
+      function getWorkspaceStacks() {
+        return Array.from(document.querySelectorAll(".workspace > .stack"));
+      }
+
+      function getWorkspacePanels() {
+        return Array.from(document.querySelectorAll('.workspace .panel[data-workspace-panel="true"]')).sort(
+          (left, right) => Number(left.dataset.masonryOrder || "0") - Number(right.dataset.masonryOrder || "0"),
+        );
+      }
+
+      function initializeWorkspaceMasonry() {
+        const stacks = getWorkspaceStacks();
+        let order = 0;
+
+        stacks.forEach((stack, stackIndex) => {
+          Array.from(stack.children).forEach((panel) => {
+            if (!(panel instanceof HTMLElement) || !panel.classList.contains("panel")) {
+              return;
+            }
+
+            if (!panel.dataset.workspacePanel) {
+              panel.dataset.workspacePanel = "true";
+              panel.dataset.masonryOrder = String(order);
+              panel.dataset.originalStack = String(stackIndex);
+              order += 1;
+              return;
+            }
+
+            order = Math.max(order, Number(panel.dataset.masonryOrder || "0") + 1);
+          });
+        });
+      }
+
+      function clearWorkspaceStacks(stacks) {
+        stacks.forEach((stack) => {
+          while (stack.firstChild) {
+            stack.removeChild(stack.firstChild);
+          }
+        });
+      }
+
+      function restoreWorkspaceOrder() {
+        const stacks = getWorkspaceStacks();
+        const panels = getWorkspacePanels();
+        clearWorkspaceStacks(stacks);
+
+        panels.forEach((panel) => {
+          const originalStack = Number(panel.dataset.originalStack || "0");
+          (stacks[originalStack] || stacks[0]).appendChild(panel);
+        });
+      }
+
+      function appendPanelToShortestStack(panel, stacks, heights) {
+        let targetIndex = 0;
+
+        for (let index = 1; index < heights.length; index += 1) {
+          if (heights[index] < heights[targetIndex]) {
+            targetIndex = index;
+          }
+        }
+
+        stacks[targetIndex].appendChild(panel);
+        heights[targetIndex] = stacks[targetIndex].getBoundingClientRect().height;
+      }
+
+      function applyWorkspaceMasonry() {
+        initializeWorkspaceMasonry();
+
+        if (window.innerWidth <= 1240) {
+          restoreWorkspaceOrder();
+          return;
+        }
+
+        const stacks = getWorkspaceStacks();
+        const panels = getWorkspacePanels();
+        const seededPanels = [];
+
+        clearWorkspaceStacks(stacks);
+
+        stacks.forEach((stack, stackIndex) => {
+          const anchor = panels.find((panel) => Number(panel.dataset.originalStack || "0") === stackIndex);
+          if (anchor) {
+            stack.appendChild(anchor);
+            seededPanels.push(anchor);
+          }
+        });
+
+        const heights = stacks.map((stack) => stack.getBoundingClientRect().height);
+        panels
+          .filter((panel) => !seededPanels.includes(panel))
+          .forEach((panel) => appendPanelToShortestStack(panel, stacks, heights));
+      }
+
+      function scheduleWorkspaceLayout() {
+        if (workspaceLayoutFrame !== null) {
+          cancelAnimationFrame(workspaceLayoutFrame);
+        }
+
+        workspaceLayoutFrame = requestAnimationFrame(() => {
+          workspaceLayoutFrame = null;
+          applyWorkspaceMasonry();
+        });
       }
 
       function renderRecentRuns() {
@@ -785,6 +1042,295 @@
           .join("");
       }
 
+      function renderEventTypeOptions() {
+        const current = eventTypeFilter.value || "all";
+        const debugPayload = state.debugPayload;
+        const eventTypes = debugPayload
+          ? ["all"].concat([...new Set(debugPayload.events.map((item) => item.type))].sort())
+          : ["all"];
+
+        eventTypeFilter.innerHTML = eventTypes
+          .map(
+            (type) =>
+              '<option value="' +
+              escapeHtml(type) +
+              '"' +
+              (type === current ? " selected" : "") +
+              ">" +
+              escapeHtml(type === "all" ? "All event types" : type) +
+              "</option>",
+          )
+          .join("");
+      }
+
+      function getFilteredDebugEvents() {
+        if (!state.debugPayload) {
+          return [];
+        }
+
+        const searchNeedle = eventSearchInput.value.trim().toLowerCase();
+        const selectedType = eventTypeFilter.value || "all";
+
+        return state.debugPayload.events.filter((event) => {
+          if (selectedType !== "all" && event.type !== selectedType) {
+            return false;
+          }
+
+          if (!searchNeedle) {
+            return true;
+          }
+
+          const haystack = [event.type, event.summary, JSON.stringify(event.raw)].join(" ").toLowerCase();
+          return haystack.includes(searchNeedle);
+        });
+      }
+
+      function renderSelectedEvent(event) {
+        const titleNode = document.getElementById("selectedEventTitle");
+        const summaryNode = document.getElementById("selectedEventSummary");
+        const metaNode = document.getElementById("selectedEventMeta");
+        const payloadNode = document.getElementById("selectedEventPayload");
+
+        if (!event) {
+          titleNode.textContent = "No event selected";
+          summaryNode.textContent = "Pick an event from the left to inspect its raw payload.";
+          metaNode.textContent = "-";
+          payloadNode.textContent = "No event selected yet.";
+          return;
+        }
+
+        titleNode.textContent = event.type;
+        summaryNode.textContent = event.summary;
+        metaNode.textContent = formatDate(event.timestamp);
+        payloadNode.textContent = JSON.stringify(event.raw, null, 2);
+      }
+
+      function stopReplay() {
+        if (state.replayTimer) {
+          clearInterval(state.replayTimer);
+          state.replayTimer = null;
+        }
+      }
+
+      function renderReplayControls(events) {
+        const replaySummary = document.getElementById("replaySummary");
+        const replayFrameMeta = document.getElementById("replayFrameMeta");
+
+        if (!events.length) {
+          stopReplay();
+          state.replayIndex = 0;
+          replayPrevButton.disabled = true;
+          replayPlayButton.disabled = true;
+          replayNextButton.disabled = true;
+          replaySlider.disabled = true;
+          replaySlider.max = "0";
+          replaySlider.value = "0";
+          replayPlayButton.textContent = "Play";
+          replaySummary.textContent = "No replay frames are available for the current filter.";
+          replayFrameMeta.textContent = "Frame 0 / 0";
+          return;
+        }
+
+        const selectedIndex = events.findIndex((item) => item.id === state.selectedDebugEventId);
+        if (selectedIndex >= 0) {
+          state.replayIndex = selectedIndex;
+        } else if (state.replayIndex >= events.length) {
+          state.replayIndex = events.length - 1;
+        }
+
+        const activeEvent = events[state.replayIndex] || events[0];
+        state.selectedDebugEventId = activeEvent.id;
+        replayPrevButton.disabled = state.replayIndex === 0;
+        replayNextButton.disabled = state.replayIndex >= events.length - 1;
+        replayPlayButton.disabled = events.length <= 1;
+        replaySlider.disabled = false;
+        replaySlider.max = String(Math.max(events.length - 1, 0));
+        replaySlider.value = String(state.replayIndex);
+        replayPlayButton.textContent = state.replayTimer ? "Pause" : "Play";
+        replaySummary.textContent = activeEvent.summary;
+        replayFrameMeta.textContent =
+          "Frame " +
+          String(state.replayIndex + 1) +
+          " / " +
+          String(events.length) +
+          " · " +
+          activeEvent.type +
+          " · " +
+          formatDate(activeEvent.timestamp);
+      }
+
+      function stepReplay(delta) {
+        const events = getFilteredDebugEvents();
+        if (!events.length) {
+          stopReplay();
+          renderDebugConsole();
+          return;
+        }
+
+        stopReplay();
+        const nextIndex = Math.max(0, Math.min(state.replayIndex + delta, events.length - 1));
+        state.replayIndex = nextIndex;
+        state.selectedDebugEventId = events[nextIndex].id;
+        renderDebugConsole();
+      }
+
+      function toggleReplay() {
+        const events = getFilteredDebugEvents();
+        if (events.length <= 1) {
+          renderDebugConsole();
+          return;
+        }
+
+        if (state.replayTimer) {
+          stopReplay();
+          renderDebugConsole();
+          return;
+        }
+
+        state.replayTimer = setInterval(() => {
+          const frames = getFilteredDebugEvents();
+          if (!frames.length || state.replayIndex >= frames.length - 1) {
+            stopReplay();
+            renderDebugConsole();
+            return;
+          }
+
+          state.replayIndex += 1;
+          state.selectedDebugEventId = frames[state.replayIndex].id;
+          renderDebugConsole();
+        }, 1200);
+
+        renderDebugConsole();
+      }
+
+      function renderDebugConsole() {
+        renderEventTypeOptions();
+
+        const debugEventsNode = document.getElementById("debugEvents");
+        const eventCountPill = document.getElementById("eventCountPill");
+
+        if (!state.debugPayload) {
+          stopReplay();
+          debugEventsNode.innerHTML = '<div class="empty">No debug payload loaded for this run.</div>';
+          eventCountPill.textContent = "0 events";
+          eventCountPill.className = "status-pill pending";
+          renderReplayControls([]);
+          renderSelectedEvent(null);
+          return;
+        }
+
+        const filtered = getFilteredDebugEvents();
+        eventCountPill.textContent = filtered.length + " / " + state.debugPayload.totalEvents + " events";
+        eventCountPill.className = "status-pill " + statusClass(state.debugPayload.terminalEventType || "pending");
+
+        if (!filtered.length) {
+          stopReplay();
+          debugEventsNode.innerHTML = '<div class="empty">No events matched the current filter.</div>';
+          renderReplayControls([]);
+          renderSelectedEvent(null);
+          return;
+        }
+
+        if (!state.selectedDebugEventId || !filtered.some((item) => item.id === state.selectedDebugEventId)) {
+          state.selectedDebugEventId = filtered[0].id;
+        }
+
+        const activeIndex = filtered.findIndex((item) => item.id === state.selectedDebugEventId);
+        state.replayIndex = activeIndex >= 0 ? activeIndex : 0;
+
+        debugEventsNode.innerHTML = filtered
+          .map((event) => {
+            const active = event.id === state.selectedDebugEventId ? " active" : "";
+            return (
+              '<button class="list-item event-item' +
+              active +
+              '" data-event-id="' +
+              escapeHtml(event.id) +
+              '" type="button"><div class="run-title"><strong>' +
+              escapeHtml(event.type) +
+              '</strong><span class="status-pill ' +
+              escapeHtml(statusClass(event.type === "run_failed" ? "failed" : event.type === "run_completed" ? "completed" : "pending")) +
+              '">' +
+              escapeHtml(event.type) +
+              "</span></div><p>" +
+              escapeHtml(event.summary) +
+              '</p><div class="meta-line">' +
+              escapeHtml(formatDate(event.timestamp)) +
+              "</div></button>"
+            );
+          })
+          .join("");
+
+        debugEventsNode.querySelectorAll("[data-event-id]").forEach((node) => {
+          node.addEventListener("click", () => {
+            state.selectedDebugEventId = node.getAttribute("data-event-id");
+            const nextIndex = filtered.findIndex((item) => item.id === state.selectedDebugEventId);
+            state.replayIndex = nextIndex >= 0 ? nextIndex : 0;
+            stopReplay();
+            renderDebugConsole();
+          });
+        });
+
+        renderReplayControls(filtered);
+        renderSelectedEvent(filtered.find((item) => item.id === state.selectedDebugEventId) || filtered[0]);
+      }
+
+      function renderLogsPanel(logs) {
+        if (!logs) {
+          return '<div class="empty">No dedicated log insight data yet. Later versions will connect Seq and other log adapters here.</div>';
+        }
+
+        const highlightsMarkup =
+          logs.highlights && logs.highlights.length
+            ? '<div style="margin-top: 18px;"><div class="label">Top Patterns</div><ul>' +
+              logs.highlights.map((item) => "<li>" + escapeHtml(item) + "</li>").join("") +
+              "</ul></div>"
+            : "";
+
+        const entriesMarkup =
+          logs.entries && logs.entries.length
+            ? '<div style="margin-top: 18px;"><div class="label">Sample Entries</div><div class="list" style="margin-top: 10px;">' +
+              logs.entries
+                .map(
+                  (entry) =>
+                    '<div class="list-item"><strong>' +
+                    escapeHtml(entry.level.toUpperCase() + " · " + entry.service) +
+                    '</strong><p>' +
+                    escapeHtml(entry.message) +
+                    '</p><div class="meta-line">' +
+                    escapeHtml(formatDate(entry.timestamp)) +
+                    (entry.environment ? " · " + escapeHtml(entry.environment) : "") +
+                    (entry.traceId ? " · trace=" + escapeHtml(entry.traceId) : "") +
+                    (entry.requestId ? " · request=" + escapeHtml(entry.requestId) : "") +
+                    (entry.deploySha ? " · deploy=" + escapeHtml(entry.deploySha) : "") +
+                    "</div></div>",
+                )
+                .join("") +
+              "</div></div>"
+            : "";
+
+        return (
+          '<div class="list-item"><strong>' +
+          escapeHtml(logs.title) +
+          '</strong><p>' +
+          escapeHtml(logs.summary) +
+          '</p><div class="meta-line">' +
+          escapeHtml(logs.provider) +
+          " · " +
+          escapeHtml(logs.status) +
+          (typeof logs.total === "number" ? " · " + escapeHtml(String(logs.total)) + " entries" : "") +
+          "</div>" +
+          (logs.filterExpression
+            ? '<div class="meta-line" style="margin-top: 10px;">Filter: <code class="inline">' +
+              escapeHtml(logs.filterExpression) +
+              "</code></div>"
+            : "") +
+          "</div>" +
+          highlightsMarkup +
+          entriesMarkup
+        );
+      }
+
       function renderRun(run) {
         state.currentRunId = run.id;
         setUrlRunId(run.id);
@@ -873,20 +1419,7 @@
             )
           : '<div class="empty">No pipeline adapter data yet. This panel will populate once CI and deploy adapters are connected.</div>';
 
-        document.getElementById("logs").innerHTML = run.logs
-          ? '<div class="list-item"><strong>' +
-            escapeHtml(run.logs.title) +
-            '</strong><p>' +
-            escapeHtml(run.logs.summary) +
-            '</p><div class="meta-line">' +
-            escapeHtml(run.logs.provider) +
-            " · " +
-            escapeHtml(run.logs.status) +
-            "</div></div>" +
-            (run.logs.highlights && run.logs.highlights.length
-              ? "<ul>" + run.logs.highlights.map((item) => "<li>" + escapeHtml(item) + "</li>").join("") + "</ul>"
-              : "")
-          : '<div class="empty">No dedicated log insight data yet. Later versions will connect Seq and other log adapters here.</div>';
+        document.getElementById("logs").innerHTML = renderLogsPanel(run.logs);
 
         document.getElementById("browserTest").innerHTML = run.browserTest
           ? '<div class="list-item"><strong>' +
@@ -920,6 +1453,9 @@
             ? run.finalReport.citations.map((item) => "<li>" + escapeHtml(item) + "</li>").join("")
             : "<li>No citations captured.</li>";
 
+        renderDebugConsole();
+        scheduleWorkspaceLayout();
+
         statusText.textContent =
           "Loaded " +
           run.label +
@@ -944,6 +1480,10 @@
 
           const runId = explicitRunId || runSelect.value || getUrlRunId();
           const run = runId ? await loadRun(runId) : await loadDefaultRun();
+          stopReplay();
+          state.debugPayload = await loadRunEvents(run.id);
+          state.selectedDebugEventId = null;
+          state.replayIndex = 0;
           renderRun(run);
         } catch (error) {
           statusText.textContent = "Load failed: " + (error && error.message ? error.message : String(error));
@@ -974,6 +1514,26 @@
       });
 
       autoRefreshToggle.addEventListener("change", updateAutoRefreshState);
+      eventSearchInput.addEventListener("input", renderDebugConsole);
+      eventTypeFilter.addEventListener("change", renderDebugConsole);
+      window.addEventListener("resize", scheduleWorkspaceLayout);
+      replayPrevButton.addEventListener("click", () => stepReplay(-1));
+      replayPlayButton.addEventListener("click", toggleReplay);
+      replayNextButton.addEventListener("click", () => stepReplay(1));
+      replaySlider.addEventListener("input", () => {
+        const events = getFilteredDebugEvents();
+        if (!events.length) {
+          stopReplay();
+          renderDebugConsole();
+          return;
+        }
+
+        stopReplay();
+        const nextIndex = Math.max(0, Math.min(Number(replaySlider.value) || 0, events.length - 1));
+        state.replayIndex = nextIndex;
+        state.selectedDebugEventId = events[nextIndex].id;
+        renderDebugConsole();
+      });
 
       (async function bootstrap() {
         try {
@@ -983,6 +1543,10 @@
             await refreshCurrentRun(initialRunId);
           } else {
             const run = await loadDefaultRun();
+            stopReplay();
+            state.debugPayload = await loadRunEvents(run.id);
+            state.selectedDebugEventId = null;
+            state.replayIndex = 0;
             renderRun(run);
           }
         } catch (error) {

@@ -107,6 +107,15 @@ function activityFromEvent(index: number, timestamp: string, event: AgentEvent):
         detail: event.detail ?? "Tool state updated.",
         status: event.status === "error" ? "error" : event.status === "awaiting_approval" ? "warning" : "info",
       };
+    case "tool_result":
+      return {
+        id: `activity_${index}`,
+        timestamp,
+        category: "tool",
+        title: `${event.toolName} result`,
+        detail: event.summary,
+        status: "success",
+      };
     case "approval_requested":
       return {
         id: `activity_${index}`,
@@ -179,24 +188,115 @@ function buildTools(log: PersistedRunLog): WorkbenchToolView[] {
   const tools = new Map<string, WorkbenchToolView>();
 
   for (const entry of log.events) {
-    if (entry.event.type !== "tool_status") {
+    if (entry.event.type === "tool_status") {
+      const current = tools.get(entry.event.toolName) ?? {
+        name: entry.event.toolName,
+        latestStatus: entry.event.status,
+        count: 0,
+        lastDetail: entry.event.detail,
+      };
+
+      current.latestStatus = entry.event.status;
+      current.count += 1;
+      current.lastDetail = entry.event.detail ?? current.lastDetail;
+      tools.set(entry.event.toolName, current);
       continue;
     }
 
-    const current = tools.get(entry.event.toolName) ?? {
-      name: entry.event.toolName,
-      latestStatus: entry.event.status,
-      count: 0,
-      lastDetail: entry.event.detail,
-    };
+    if (entry.event.type === "tool_result") {
+      const current = tools.get(entry.event.toolName) ?? {
+        name: entry.event.toolName,
+        latestStatus: "success",
+        count: 1,
+        lastDetail: entry.event.summary,
+      };
 
-    current.latestStatus = entry.event.status;
-    current.count += 1;
-    current.lastDetail = entry.event.detail ?? current.lastDetail;
-    tools.set(entry.event.toolName, current);
+      current.latestStatus = current.latestStatus === "error" ? "error" : "success";
+      current.lastDetail = entry.event.summary;
+      tools.set(entry.event.toolName, current);
+    }
   }
 
   return [...tools.values()].sort((left, right) => right.count - left.count);
+}
+
+interface SeqLogEntryView {
+  timestamp: string;
+  level: string;
+  service: string;
+  environment?: string;
+  message: string;
+  traceId?: string;
+  requestId?: string;
+  deploySha?: string;
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function asNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function asSeqEntries(value: unknown): SeqLogEntryView[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const entries: SeqLogEntryView[] = [];
+
+  for (const item of value) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+
+    const record = item as Record<string, unknown>;
+    const timestamp = asString(record.timestamp);
+    const level = asString(record.level);
+    const service = asString(record.service);
+    const message = asString(record.message);
+
+    if (!timestamp || !level || !service || !message) {
+      continue;
+    }
+
+    entries.push({
+      timestamp,
+      level,
+      service,
+      environment: asString(record.environment),
+      message,
+      traceId: asString(record.traceId),
+      requestId: asString(record.requestId),
+      deploySha: asString(record.deploySha),
+    });
+  }
+
+  return entries;
+}
+
+function asSummaryHighlights(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => {
+      if (!item || typeof item !== "object") {
+        return null;
+      }
+
+      const record = item as Record<string, unknown>;
+      const fingerprint = asString(record.fingerprint);
+      const count = asNumber(record.count);
+      if (!fingerprint || count === undefined) {
+        return null;
+      }
+
+      return `${count}x ${fingerprint}`;
+    })
+    .filter((item): item is string => Boolean(item));
 }
 
 function buildApprovals(log: PersistedRunLog): WorkbenchApprovalView[] {
@@ -348,9 +448,39 @@ function inferPipelineView(args: {
 }
 
 function inferLogInsightView(args: {
+  log: PersistedRunLog;
   tools: WorkbenchToolView[];
   context: WorkbenchContextSnapshot;
 }): WorkbenchLogInsightView | undefined {
+  const seqResultEvents = args.log.events.filter(
+    (entry): entry is PersistedRunLog["events"][number] & {
+      event: Extract<AgentEvent, { type: "tool_result" }>;
+    } => entry.event.type === "tool_result" && entry.event.toolName === "query_seq_logs",
+  );
+  const latestSeqResult = seqResultEvents.at(-1)?.event;
+
+  if (latestSeqResult?.data) {
+    const provider = asString(latestSeqResult.data.provider) ?? "seq";
+    const filterExpression = asString(latestSeqResult.data.filterExpression);
+    const total = asNumber(latestSeqResult.data.total);
+    const entries = asSeqEntries(latestSeqResult.data.entries);
+    const highlights = asSummaryHighlights(latestSeqResult.data.summary).slice(0, 4);
+
+    return {
+      title: "Seq Log Insights",
+      provider,
+      status: entries.some((entry) => ["error", "fatal"].includes(entry.level)) ? "warning" : "ready",
+      summary:
+        total === 0
+          ? "Seq returned no matching log entries for this run."
+          : `Seq returned ${total ?? entries.length} matching log entr${(total ?? entries.length) === 1 ? "y" : "ies"}.`,
+      highlights,
+      filterExpression,
+      total,
+      entries,
+    };
+  }
+
   const logTools = args.tools.filter((tool) => tool.name.includes("log") || tool.name.includes("trace"));
   if (logTools.length === 0 && args.context.knowledgeSources.length === 0) {
     return undefined;
@@ -437,7 +567,7 @@ export function buildWorkbenchRunView(log: PersistedRunLog): WorkbenchRunView {
   const isBlocked = status === "blocked";
   const label = buildRunLabel(log);
   const pipeline = inferPipelineView({ tools, diagnostics, status });
-  const logs = inferLogInsightView({ tools, context });
+  const logs = inferLogInsightView({ log, tools, context });
   const browserTest = inferBrowserTestView({ tools, approvals });
 
   return {
